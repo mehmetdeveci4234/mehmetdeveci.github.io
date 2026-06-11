@@ -17,7 +17,7 @@ const FINANSAL_DATA = {
      id:"thy", ad:"Turkish Airlines", kod:"THYAO", bors:"BIST",
      renk:"#C8102E", mali_yil:"Ocak–Aralık",
      ir_url:"https://investor.turkishairlines.com",
-     aciklama:"İstanbul merkezli, 130+ ülkeye uçuşla dünyanın en geniş ağlarından biri",
+     aciklama:"İstanbul merkezli 130+ ülkeye uçuş",
      yillar:{
        "2021":{gelir:10.8, isletme_kar:0.8,  net_kar:0.5,  yolcu:56.0,  doluluk:70.1, isletme_marj:7.4,  net_marj:4.6,  filo:374, ask_buyume:null},
        "2022":{gelir:16.8, isletme_kar:2.6,  net_kar:2.4,  yolcu:71.4,  doluluk:79.8, isletme_marj:15.5, net_marj:14.3, filo:411, ask_buyume:36.1},
