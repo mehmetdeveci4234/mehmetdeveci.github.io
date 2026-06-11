@@ -1,318 +1,497 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 
-// ─── KUR API: exchangerate.host — CORS açık, key yok, TRY dahil ──────────────
-const FX_API = "https://open.er-api.com/v6/latest/USD";
-
-// ─── ENERJİ: sabit değerler (API sorunlu olduğunda fallback) ─────────────────
-const ENERJI_FALLBACK = { brent: 72.4, jet: 82.1 };
+// ─── API ──────────────────────────────────────────────────────────────────────
+// fawazahmed0/exchange-api → jsDelivr CDN üzerinden
+// Key yok · CORS açık · Günlük güncellenir · Tarihsel veri destekler
+// Bugün: https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/usd.json
+// Geçmiş: https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@2026-06-10/v1/currencies/usd.json
+const CDN_BASE = "https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api";
+const ENERJI = { brent: 72.4, jet: 82.1 };
 
 // ─── FİNANSAL VERİLER ────────────────────────────────────────────────────────
-const FINANSAL_DATA = {
+const FIN = {
   havayollari: [
     {
-      id:"thy", ad:"Turkish Airlines", kod:"THYAO", bors:"BIST",
-      renk:"#C8102E", mali_yil:"Ocak–Aralık", rapor_siklik:"Çeyreklik",
-      ir_url:"https://investor.turkishairlines.com",
-      aciklama:"İstanbul merkezli, 130+ ülkeye uçuş",
-      yillar:{
-        "2021":{gelir:10.8,isletme_kar:0.8, net_kar:0.5, yolcu:56.0,doluluk:70.1,isletme_marj:7.4, net_marj:4.6, filo:374,ask_buyume:null},
-        "2022":{gelir:16.8,isletme_kar:2.6, net_kar:2.4, yolcu:71.4,doluluk:79.8,isletme_marj:15.5,net_marj:14.3,filo:411,ask_buyume:36.1},
-        "2023":{gelir:20.5,isletme_kar:3.6, net_kar:3.0, yolcu:83.4,doluluk:82.3,isletme_marj:17.6,net_marj:14.6,filo:444,ask_buyume:16.2},
-        "2024":{gelir:22.7,isletme_kar:4.18,net_kar:3.42,yolcu:90.2,doluluk:84.1,isletme_marj:18.4,net_marj:15.1,filo:492,ask_buyume:10.6},
-        "2025":{gelir:24.1,isletme_kar:3.65,net_kar:2.90,yolcu:97.2,doluluk:84.8,isletme_marj:15.1,net_marj:12.0,filo:516,ask_buyume:7.5},
+      id:"thy", ad:"Turkish Airlines", kod:"THYAO", bors:"BIST", renk:"#C8102E",
+      mali:"Ocak–Aralık", siklik:"Çeyreklik", ir:"https://investor.turkishairlines.com",
+      yil:{
+        "2021":{g:10.8,ik:0.8, nk:0.5, p:56.0, lf:70.1,im:7.4, nm:4.6, f:374},
+        "2022":{g:16.8,ik:2.6, nk:2.4, p:71.4, lf:79.8,im:15.5,nm:14.3,f:411},
+        "2023":{g:20.5,ik:3.6, nk:3.0, p:83.4, lf:82.3,im:17.6,nm:14.6,f:444},
+        "2024":{g:22.7,ik:4.18,nk:3.42,p:90.2, lf:84.1,im:18.4,nm:15.1,f:492},
+        "2025":{g:24.1,ik:3.65,nk:2.90,p:97.2, lf:84.8,im:15.1,nm:12.0,f:516},
+        "Q1 2026":{g:5.9,ik:0.31,nk:0.23,p:21.3,lf:83.8,im:5.3,nm:3.9,f:530},
       },
-      ceyrekler:{
-        "Q3 2025":{gelir:7.0, net_kar:0.23,yolcu:26.1,doluluk:85.2},
-        "Q2 2025":{gelir:6.3, net_kar:0.88,yolcu:24.8,doluluk:84.9},
-        "Q1 2025":{gelir:4.8, net_kar:-0.1,yolcu:19.8,doluluk:82.1},
-      },
+      q:[
+        {d:"Q1 2026",g:5.9, nk:0.23,p:21.3,lf:83.8,url:"https://www.rustourismnews.com/2026/05/06/turkish-airlines-returns-to-strong-profit-despite-rising-operating-costs/"},
+        {d:"Q4 2025",g:5.2, nk:-0.1,p:22.4,lf:82.1,url:"https://investor.turkishairlines.com"},
+        {d:"Q3 2025",g:7.0, nk:0.23,p:26.1,lf:85.2,url:"https://investor.turkishairlines.com"},
+        {d:"Q2 2025",g:6.3, nk:0.88,p:24.8,lf:84.9,url:"https://investor.turkishairlines.com"},
+      ],
     },
     {
-      id:"emirates", ad:"Emirates", kod:"EK", bors:"Halka açık değil",
-      renk:"#CC0001", mali_yil:"Nisan–Mart", rapor_siklik:"Yıllık/Yarıyıl",
-      ir_url:"https://www.emirates.com/media-centre/",
-      aciklama:"Dubai merkezli, en büyük uzun hat havayolu",
+      id:"emirates", ad:"Emirates", kod:"EK", bors:"Halka açık değil", renk:"#CC0001",
+      mali:"Nisan–Mart", siklik:"Yıllık/Yarıyıl", ir:"https://www.emirates.com/media-centre/",
       not:"OP ayrıştırılmaz.",
-      yillar:{
-        "2021":{gelir:12.5,isletme_kar:null,net_kar:-3.8,yolcu:16.1,doluluk:56.8,isletme_marj:null,net_marj:null, filo:259,ask_buyume:null},
-        "2022":{gelir:26.0,isletme_kar:null,net_kar:1.5, yolcu:45.7,doluluk:72.0,isletme_marj:null,net_marj:5.8, filo:259,ask_buyume:55.0},
-        "2023":{gelir:32.6,isletme_kar:null,net_kar:4.7, yolcu:51.9,doluluk:78.4,isletme_marj:null,net_marj:14.4,filo:260,ask_buyume:16.0},
-        "2024":{gelir:36.9,isletme_kar:null,net_kar:4.7, yolcu:52.1,doluluk:79.9,isletme_marj:null,net_marj:12.7,filo:261,ask_buyume:5.5},
-        "2025":{gelir:39.6,isletme_kar:null,net_kar:5.19,yolcu:53.7,doluluk:78.9,isletme_marj:null,net_marj:14.9,filo:270,ask_buyume:4.0},
+      yil:{
+        "2022":{g:26.0,ik:null,nk:1.5, p:45.7,lf:72.0,im:null,nm:5.8, f:259},
+        "2023":{g:32.6,ik:null,nk:4.7, p:51.9,lf:78.4,im:null,nm:14.4,f:260},
+        "2024":{g:36.9,ik:null,nk:4.7, p:52.1,lf:79.9,im:null,nm:12.7,f:261},
+        "2025":{g:39.6,ik:null,nk:5.19,p:53.7,lf:78.9,im:null,nm:14.9,f:270},
       },
+      q:[{d:"H1 2025-26",g:21.4,nk:3.2,p:27.8,lf:79.5,url:"https://www.emirates.com/media-centre/emirates-group-hits-new-half-year-profit-record-for-2025-26/"}],
     },
     {
-      id:"lufthansa", ad:"Lufthansa Group", kod:"LHA", bors:"XETRA",
-      renk:"#05164D", mali_yil:"Ocak–Aralık", rapor_siklik:"Çeyreklik",
-      ir_url:"https://investor-relations.lufthansagroup.com",
-      aciklama:"Lufthansa, SWISS, Austrian, Brussels, Eurowings, ITA",
+      id:"lufthansa", ad:"Lufthansa Group", kod:"LHA", bors:"XETRA", renk:"#05164D",
+      mali:"Ocak–Aralık", siklik:"Çeyreklik", ir:"https://investor-relations.lufthansagroup.com",
       not:"EUR/USD≈1.08",
-      yillar:{
-        "2021":{gelir:17.8,isletme_kar:-1.7,net_kar:-2.2,yolcu:70.1, doluluk:65.1,isletme_marj:-9.6,net_marj:-12.4,filo:785,ask_buyume:null},
-        "2022":{gelir:34.1,isletme_kar:1.5, net_kar:0.8, yolcu:102.6,doluluk:78.4,isletme_marj:4.4, net_marj:2.3, filo:775,ask_buyume:36.0},
-        "2023":{gelir:38.8,isletme_kar:2.7, net_kar:1.7, yolcu:123.0,doluluk:82.2,isletme_marj:7.0, net_marj:4.4, filo:783,ask_buyume:18.2},
-        "2024":{gelir:40.6,isletme_kar:1.78,net_kar:1.51,yolcu:130.7,doluluk:83.1,isletme_marj:4.4, net_marj:3.7, filo:800,ask_buyume:6.6},
-        "2025":{gelir:42.7,isletme_kar:2.12,net_kar:1.40,yolcu:135.0,doluluk:83.2,isletme_marj:4.9, net_marj:3.3, filo:821,ask_buyume:4.0},
+      yil:{
+        "2022":{g:34.1,ik:1.5, nk:0.8, p:102.6,lf:78.4,im:4.4,nm:2.3, f:775},
+        "2023":{g:38.8,ik:2.7, nk:1.7, p:123.0,lf:82.2,im:7.0,nm:4.4, f:783},
+        "2024":{g:40.6,ik:1.78,nk:1.51,p:130.7,lf:83.1,im:4.4,nm:3.7, f:800},
+        "2025":{g:42.7,ik:2.12,nk:1.40,p:135.0,lf:83.2,im:4.9,nm:3.3, f:821},
       },
-      ceyrekler:{
-        "Q1 2026":{gelir:9.2, net_kar:0.31,yolcu:33.2,doluluk:81.4},
-        "Q4 2025":{gelir:9.8, net_kar:0.18,yolcu:31.1,doluluk:80.9},
-        "Q3 2025":{gelir:12.1,net_kar:0.72,yolcu:38.4,doluluk:86.3},
-      },
+      q:[
+        {d:"Q1 2026",g:9.2, nk:0.31,p:33.2,lf:81.4,url:"https://investor-relations.lufthansagroup.com/en/financial-reports-publications.html"},
+        {d:"Q4 2025",g:9.8, nk:0.18,p:31.1,lf:80.9,url:"https://investor-relations.lufthansagroup.com"},
+        {d:"Q3 2025",g:12.1,nk:0.72,p:38.4,lf:86.3,url:"https://investor-relations.lufthansagroup.com"},
+      ],
     },
     {
-      id:"afklm", ad:"Air France-KLM", kod:"AF", bors:"Euronext",
-      renk:"#002157", mali_yil:"Ocak–Aralık", rapor_siklik:"Çeyreklik",
-      ir_url:"https://www.airfranceklm.com/en/investors",
-      aciklama:"Air France, KLM ve Transavia",
+      id:"afklm", ad:"Air France-KLM", kod:"AF", bors:"Euronext", renk:"#002157",
+      mali:"Ocak–Aralık", siklik:"Çeyreklik", ir:"https://www.airfranceklm.com/en/investors",
       not:"EUR/USD≈1.08",
-      yillar:{
-        "2021":{gelir:15.5,isletme_kar:-0.5,net_kar:-0.9,yolcu:63.2, doluluk:68.1,isletme_marj:-3.2,net_marj:-5.8,filo:510,ask_buyume:null},
-        "2022":{gelir:28.9,isletme_kar:1.3, net_kar:0.7, yolcu:88.1, doluluk:80.0,isletme_marj:4.5, net_marj:2.4, filo:522,ask_buyume:35.0},
-        "2023":{gelir:32.5,isletme_kar:1.7, net_kar:0.9, yolcu:97.6, doluluk:86.4,isletme_marj:5.2, net_marj:2.8, filo:530,ask_buyume:12.5},
-        "2024":{gelir:33.8,isletme_kar:1.72,net_kar:1.06,yolcu:98.0, doluluk:87.8,isletme_marj:5.1, net_marj:3.1, filo:541,ask_buyume:4.9},
-        "2025":{gelir:35.6,isletme_kar:2.16,net_kar:1.84,yolcu:102.8,doluluk:87.2,isletme_marj:6.1, net_marj:5.2, filo:545,ask_buyume:4.9},
+      yil:{
+        "2022":{g:28.9,ik:1.3, nk:0.7, p:88.1, lf:80.0,im:4.5,nm:2.4, f:522},
+        "2023":{g:32.5,ik:1.7, nk:0.9, p:97.6, lf:86.4,im:5.2,nm:2.8, f:530},
+        "2024":{g:33.8,ik:1.72,nk:1.06,p:98.0, lf:87.8,im:5.1,nm:3.1, f:541},
+        "2025":{g:35.6,ik:2.16,nk:1.84,p:102.8,lf:87.2,im:6.1,nm:5.2, f:545},
       },
-      ceyrekler:{
-        "Q4 2025":{gelir:8.1, net_kar:0.63,yolcu:24.9,doluluk:85.1},
-        "Q3 2025":{gelir:9.8, net_kar:0.91,yolcu:28.6,doluluk:88.4},
-        "Q2 2025":{gelir:8.4, net_kar:0.54,yolcu:26.1,doluluk:87.2},
-      },
+      q:[
+        {d:"Q4 2025",g:8.1, nk:0.63,p:24.9,lf:85.1,url:"https://www.airfranceklm.com/sites/default/files/2026-02/afklm_full_year_2025_press_release_english.pdf"},
+        {d:"Q3 2025",g:9.8, nk:0.91,p:28.6,lf:88.4,url:"https://www.airfranceklm.com/en/investors"},
+        {d:"Q2 2025",g:8.4, nk:0.54,p:26.1,lf:87.2,url:"https://www.airfranceklm.com/en/investors"},
+      ],
     },
     {
-      id:"iag", ad:"IAG", kod:"IAG", bors:"LSE/BME",
-      renk:"#1B3A6B", mali_yil:"Ocak–Aralık", rapor_siklik:"Çeyreklik",
-      ir_url:"https://www.iairgroup.com/investors",
-      aciklama:"British Airways, Iberia, Vueling, Aer Lingus",
+      id:"iag", ad:"IAG", kod:"IAG", bors:"LSE/BME", renk:"#1B3A6B",
+      mali:"Ocak–Aralık", siklik:"Çeyreklik", ir:"https://www.iairgroup.com/investors",
       not:"EUR/USD≈1.08",
-      yillar:{
-        "2021":{gelir:11.8,isletme_kar:-0.8,net_kar:-2.9,yolcu:59.3, doluluk:66.3,isletme_marj:-6.8,net_marj:null, filo:520,ask_buyume:null},
-        "2022":{gelir:23.0,isletme_kar:1.5, net_kar:0.9, yolcu:98.4, doluluk:82.0,isletme_marj:6.5, net_marj:3.9, filo:530,ask_buyume:40.5},
-        "2023":{gelir:29.3,isletme_kar:3.5, net_kar:2.7, yolcu:116.0,doluluk:86.5,isletme_marj:11.9,net_marj:9.2, filo:540,ask_buyume:14.0},
-        "2024":{gelir:32.1,isletme_kar:4.05,net_kar:3.24,yolcu:121.8,doluluk:86.8,isletme_marj:12.6,net_marj:10.1,filo:560,ask_buyume:7.8},
-        "2025":{gelir:34.5,isletme_kar:4.28,net_kar:3.56,yolcu:127.5,doluluk:87.1,isletme_marj:12.4,net_marj:10.3,filo:571,ask_buyume:5.1},
+      yil:{
+        "2022":{g:23.0,ik:1.5, nk:0.9, p:98.4, lf:82.0,im:6.5, nm:3.9, f:530},
+        "2023":{g:29.3,ik:3.5, nk:2.7, p:116.0,lf:86.5,im:11.9,nm:9.2, f:540},
+        "2024":{g:32.1,ik:4.05,nk:3.24,p:121.8,lf:86.8,im:12.6,nm:10.1,f:560},
+        "2025":{g:34.5,ik:4.28,nk:3.56,p:127.5,lf:87.1,im:12.4,nm:10.3,f:571},
       },
-      ceyrekler:{
-        "Q1 2026":{gelir:7.8, net_kar:0.61,yolcu:30.2,doluluk:84.8},
-        "Q4 2025":{gelir:8.1, net_kar:0.74,yolcu:31.5,doluluk:85.2},
-        "Q3 2025":{gelir:10.2,net_kar:1.42,yolcu:36.1,doluluk:88.1},
-      },
+      q:[
+        {d:"Q1 2026",g:7.8, nk:0.61,p:30.2,lf:84.8,url:"https://www.iairgroup.com/investors"},
+        {d:"Q4 2025",g:8.1, nk:0.74,p:31.5,lf:85.2,url:"https://www.iairgroup.com/investors"},
+        {d:"Q3 2025",g:10.2,nk:1.42,p:36.1,lf:88.1,url:"https://www.iairgroup.com/investors"},
+      ],
     },
     {
-      id:"qatar", ad:"Qatar Airways", kod:"QR", bors:"Halka açık değil",
-      renk:"#5C0632", mali_yil:"Nisan–Mart", rapor_siklik:"Yıllık",
-      ir_url:"https://www.qatarairways.com/en/pressreleases.html",
-      aciklama:"Doha merkezli, Skytrax 5 yıldızlı",
+      id:"qatar", ad:"Qatar Airways", kod:"QR", bors:"Halka açık değil", renk:"#5C0632",
+      mali:"Nisan–Mart", siklik:"Yıllık", ir:"https://www.qatarairways.com/en/pressreleases.html",
       not:"Çeyreklik rapor yok.",
-      yillar:{
-        "2021":{gelir:7.4, isletme_kar:null,net_kar:-1.9,yolcu:22.7,doluluk:53.3,isletme_marj:null,net_marj:null,filo:228,ask_buyume:null},
-        "2022":{gelir:17.7,isletme_kar:null,net_kar:1.5, yolcu:34.2,doluluk:72.0,isletme_marj:null,net_marj:8.5, filo:237,ask_buyume:null},
-        "2023":{gelir:21.1,isletme_kar:null,net_kar:1.7, yolcu:40.0,doluluk:83.0,isletme_marj:null,net_marj:8.1, filo:250,ask_buyume:null},
-        "2024":{gelir:22.2,isletme_kar:null,net_kar:2.15,yolcu:43.1,doluluk:85.0,isletme_marj:null,net_marj:9.7, filo:261,ask_buyume:4.0},
-        "2025":{gelir:23.6,isletme_kar:null,net_kar:1.94,yolcu:41.8,doluluk:84.0,isletme_marj:null,net_marj:8.2, filo:262,ask_buyume:null},
+      yil:{
+        "2022":{g:17.7,ik:null,nk:1.5, p:34.2,lf:72.0,im:null,nm:8.5, f:237},
+        "2023":{g:21.1,ik:null,nk:1.7, p:40.0,lf:83.0,im:null,nm:8.1, f:250},
+        "2024":{g:22.2,ik:null,nk:2.15,p:43.1,lf:85.0,im:null,nm:9.7, f:261},
+        "2025":{g:23.6,ik:null,nk:1.94,p:41.8,lf:84.0,im:null,nm:8.2, f:262},
       },
     },
     {
-      id:"delta", ad:"Delta Air Lines", kod:"DAL", bors:"NYSE",
-      renk:"#003366", mali_yil:"Ocak–Aralık", rapor_siklik:"Çeyreklik",
-      ir_url:"https://ir.delta.com",
-      aciklama:"ABD'nin en büyük havayolu grubu, Atlanta hub",
-      yillar:{
-        "2021":{gelir:29.9,isletme_kar:1.0, net_kar:-0.3,yolcu:164.0,doluluk:78.0,isletme_marj:3.3, net_marj:-1.0,filo:950,ask_buyume:null},
-        "2022":{gelir:50.6,isletme_kar:3.7, net_kar:1.3, yolcu:192.0,doluluk:83.0,isletme_marj:7.3, net_marj:2.6, filo:980,ask_buyume:null},
-        "2023":{gelir:58.0,isletme_kar:5.6, net_kar:4.6, yolcu:200.0,doluluk:84.8,isletme_marj:9.7, net_marj:7.9, filo:1002,ask_buyume:null},
-        "2024":{gelir:61.6,isletme_kar:5.8, net_kar:3.5, yolcu:204.0,doluluk:85.2,isletme_marj:9.4, net_marj:5.7, filo:1010,ask_buyume:null},
-        "2025":{gelir:62.9,isletme_kar:5.5, net_kar:3.2, yolcu:205.0,doluluk:85.1,isletme_marj:8.7, net_marj:5.1, filo:1025,ask_buyume:null},
+      id:"delta", ad:"Delta Air Lines", kod:"DAL", bors:"NYSE", renk:"#003366",
+      mali:"Ocak–Aralık", siklik:"Çeyreklik", ir:"https://ir.delta.com",
+      yil:{
+        "2022":{g:50.6,ik:3.7,nk:1.3, p:192.0,lf:83.0,im:7.3, nm:2.6, f:980},
+        "2023":{g:58.0,ik:5.6,nk:4.6, p:200.0,lf:84.8,im:9.7, nm:7.9, f:1002},
+        "2024":{g:61.6,ik:5.8,nk:3.5, p:204.0,lf:85.2,im:9.4, nm:5.7, f:1010},
+        "2025":{g:62.9,ik:5.5,nk:3.2, p:205.0,lf:85.1,im:8.7, nm:5.1, f:1025},
       },
-      ceyrekler:{
-        "Q1 2026":{gelir:14.0,net_kar:0.24,yolcu:50.1,doluluk:83.2},
-        "Q4 2025":{gelir:15.6,net_kar:0.82,yolcu:51.2,doluluk:84.1},
-        "Q3 2025":{gelir:16.7,net_kar:1.28,yolcu:54.8,doluluk:86.4},
-      },
+      q:[
+        {d:"Q1 2026",g:14.0,nk:0.24,p:50.1,lf:83.2,url:"https://ir.delta.com/news-releases/news-release-details/delta-air-lines-announces-march-quarter-2026-financial-results"},
+        {d:"Q4 2025",g:15.6,nk:0.82,p:51.2,lf:84.1,url:"https://ir.delta.com"},
+        {d:"Q3 2025",g:16.7,nk:1.28,p:54.8,lf:86.4,url:"https://ir.delta.com"},
+      ],
     },
     {
-      id:"united", ad:"United Airlines", kod:"UAL", bors:"NASDAQ",
-      renk:"#0066CC", mali_yil:"Ocak–Aralık", rapor_siklik:"Çeyreklik",
-      ir_url:"https://ir.united.com",
-      aciklama:"Chicago O'Hare ve Newark hub'lı global taşıyıcı",
-      yillar:{
-        "2022":{gelir:44.9,isletme_kar:3.4, net_kar:0.7, yolcu:165.0,doluluk:82.8,isletme_marj:7.6, net_marj:1.6, filo:921,ask_buyume:null},
-        "2023":{gelir:53.7,isletme_kar:5.2, net_kar:2.6, yolcu:173.0,doluluk:83.7,isletme_marj:9.7, net_marj:4.8, filo:941,ask_buyume:null},
-        "2024":{gelir:57.1,isletme_kar:4.8, net_kar:3.2, yolcu:177.0,doluluk:84.4,isletme_marj:8.4, net_marj:5.6, filo:962,ask_buyume:null},
-        "2025":{gelir:59.4,isletme_kar:5.1, net_kar:3.8, yolcu:180.0,doluluk:84.8,isletme_marj:8.6, net_marj:6.4, filo:978,ask_buyume:null},
+      id:"united", ad:"United Airlines", kod:"UAL", bors:"NASDAQ", renk:"#0066CC",
+      mali:"Ocak–Aralık", siklik:"Çeyreklik", ir:"https://ir.united.com",
+      yil:{
+        "2022":{g:44.9,ik:3.4,nk:0.7, p:165.0,lf:82.8,im:7.6, nm:1.6, f:921},
+        "2023":{g:53.7,ik:5.2,nk:2.6, p:173.0,lf:83.7,im:9.7, nm:4.8, f:941},
+        "2024":{g:57.1,ik:4.8,nk:3.2, p:177.0,lf:84.4,im:8.4, nm:5.6, f:962},
+        "2025":{g:59.4,ik:5.1,nk:3.8, p:180.0,lf:84.8,im:8.6, nm:6.4, f:978},
       },
-      ceyrekler:{
-        "Q1 2026":{gelir:13.2,net_kar:0.33,yolcu:42.8,doluluk:82.9},
-        "Q4 2025":{gelir:14.7,net_kar:0.89,yolcu:44.1,doluluk:83.6},
-        "Q3 2025":{gelir:16.8,net_kar:1.51,yolcu:50.2,doluluk:86.1},
-      },
+      q:[
+        {d:"Q1 2026",g:13.2,nk:0.33,p:42.8,lf:82.9,url:"https://ir.united.com/news-releases"},
+        {d:"Q4 2025",g:14.7,nk:0.89,p:44.1,lf:83.6,url:"https://ir.united.com"},
+        {d:"Q3 2025",g:16.8,nk:1.51,p:50.2,lf:86.1,url:"https://ir.united.com"},
+      ],
     },
     {
-      id:"singapore", ad:"Singapore Airlines", kod:"SIA", bors:"SGX",
-      renk:"#004B87", mali_yil:"Nisan–Mart", rapor_siklik:"Yarıyıl",
-      ir_url:"https://www.singaporeair.com/en_UK/us/about-us/investor-relations/",
-      aciklama:"Changi merkezli premium taşıyıcı; SilkAir ve Scoot dahil",
+      id:"singapore", ad:"Singapore Airlines", kod:"SIA", bors:"SGX", renk:"#004B87",
+      mali:"Nisan–Mart", siklik:"Yarıyıl", ir:"https://www.singaporeair.com/en_UK/us/about-us/investor-relations/",
       not:"SGD/USD≈0.74",
-      yillar:{
-        "2022":{gelir:10.5,isletme_kar:0.8, net_kar:0.9, yolcu:22.4,doluluk:68.2,isletme_marj:7.6, net_marj:8.6, filo:180,ask_buyume:null},
-        "2023":{gelir:15.7,isletme_kar:2.1, net_kar:2.2, yolcu:38.7,doluluk:85.1,isletme_marj:13.4,net_marj:14.0,filo:193,ask_buyume:null},
-        "2024":{gelir:17.0,isletme_kar:2.4, net_kar:2.0, yolcu:41.5,doluluk:86.0,isletme_marj:14.1,net_marj:11.8,filo:201,ask_buyume:null},
-        "2025":{gelir:17.8,isletme_kar:2.3, net_kar:1.9, yolcu:43.2,doluluk:86.4,isletme_marj:12.9,net_marj:10.7,filo:208,ask_buyume:null},
+      yil:{
+        "2022":{g:10.5,ik:0.8, nk:0.9, p:22.4,lf:68.2,im:7.6, nm:8.6, f:180},
+        "2023":{g:15.7,ik:2.1, nk:2.2, p:38.7,lf:85.1,im:13.4,nm:14.0,f:193},
+        "2024":{g:17.0,ik:2.4, nk:2.0, p:41.5,lf:86.0,im:14.1,nm:11.8,f:201},
+        "2025":{g:17.8,ik:2.3, nk:1.9, p:43.2,lf:86.4,im:12.9,nm:10.7,f:208},
       },
     },
   ],
 };
 
-const KATEGORILER = [
-  {id:"tumu",label:"Tümü"},{id:"gds_ndc",label:"GDS & NDC"},
-  {id:"one_order",label:"ONE Order"},{id:"teknoloji",label:"Teknoloji"},
-  {id:"yeni_hat",label:"Yeni Hat"},{id:"ortaklik",label:"Ortaklık"},
-  {id:"finansal",label:"Finansal"},{id:"duzenleyici",label:"Düzenleyici"},
-  {id:"diger",label:"Diğer"},
+const METR = {
+  g:  {l:"Toplam Gelir (USD B)", fmt:v=>v!=null?`$${v.toFixed(1)}B`:"—", renk:"#6366f1"},
+  nk: {l:"Net Kâr (USD B)",     fmt:v=>v!=null?`${v>=0?"":"−"}$${Math.abs(v).toFixed(2)}B`:"—", renk:"#10b981"},
+  ik: {l:"EBIT (USD B)",        fmt:v=>v!=null?`$${v.toFixed(2)}B`:"—", renk:"#0ea5e9"},
+  im: {l:"İşl. Marjı %",       fmt:v=>v!=null?`${v.toFixed(1)}%`:"—",  renk:"#f59e0b"},
+  nm: {l:"Net Marj %",         fmt:v=>v!=null?`${v.toFixed(1)}%`:"—",  renk:"#8b5cf6"},
+  p:  {l:"Yolcu (M)",          fmt:v=>v!=null?`${v.toFixed(1)}M`:"—",  renk:"#ef4444"},
+  lf: {l:"Doluluk PLF %",      fmt:v=>v!=null?`${v.toFixed(1)}%`:"—",  renk:"#14b8a6"},
+  f:  {l:"Filo (uçak)",        fmt:v=>v!=null?`${v}`:"—",              renk:"#f97316"},
+};
+
+const KKATEGORILER = [
+  {id:"tumu",l:"Tümü"},{id:"gds_ndc",l:"GDS & NDC"},
+  {id:"one_order",l:"ONE Order"},{id:"teknoloji",l:"Teknoloji"},
+  {id:"yeni_hat",l:"Yeni Hat"},{id:"ortaklik",l:"Ortaklık"},
+  {id:"finansal",l:"Finansal"},{id:"duzenleyici",l:"Düzenleyici"},
 ];
+const KRENK = {gds_ndc:"#6366f1",one_order:"#0ea5e9",teknoloji:"#06b6d4",yeni_hat:"#10b981",ortaklik:"#8b5cf6",finansal:"#ef4444",duzenleyici:"#f59e0b",diger:"#94a3b8"};
 
 const HABERLER = [
-  {id:1,  tarih:"2026-06-10", baslik:"Amadeus NDC rezervasyonları 500 milyon sınırını aştı", ozet:"Amadeus, NDC tabanlı rezervasyon hacminin 500 milyon bandını geçtiğini açıkladı. Havayolu ortaklarıyla imzalanan içerik anlaşmaları dağıtım gelirlerini %18 artırdı. Şirket, 2027 sonuna kadar NDC oranını %50'ye taşımayı hedefliyor.", kategori:"gds_ndc", havayolu:"Amadeus", kaynaklar:[{ad:"Amadeus IR",url:"https://amadeus.com"},{ad:"PhocusWire",url:"https://phocuswire.com"}], analizli:true},
-  {id:2,  tarih:"2026-06-09", baslik:"Turkish Airlines Sabre acentelerine NDC teşvik paketi başlattı", ozet:"THY, Sabre GDS üzerinden yapılan NDC rezervasyonlarına ek komisyon, erken koltuk seçimi ve öncelikli check-in hakkı tanıdı. Program Türkiye ve 14 Avrupa pazarında geçerli.", kategori:"gds_ndc", havayolu:"Turkish Airlines", kaynaklar:[{ad:"THY Newsroom",url:"https://turkishairlines.com"},{ad:"Travel Weekly",url:"https://travelweekly.com"}], analizli:true},
-  {id:3,  tarih:"2026-06-09", baslik:"IATA ONE Order standardına geçen havayolu sayısı 60'ı aştı", ozet:"IATA, ONE Order sertifikasyonunu tamamlayan havayolu sayısının 60'a ulaştığını duyurdu. Wizz Air, Avrupa'da ONE Order'a geçen ilk LCC olurken Finnair ve TAP da sertifikasyon sürecini tamamladı.", kategori:"one_order", havayolu:"Tümü", kaynaklar:[{ad:"IATA",url:"https://iata.org"},{ad:"PhocusWire",url:"https://phocuswire.com"}], analizli:true},
-  {id:4,  tarih:"2026-06-08", baslik:"Lufthansa Group 2025'te €39,6 milyar rekor gelir açıkladı", ozet:"Lufthansa Group'un düzeltilmiş EBIT'i %19 büyüyerek 2 milyar Euro'ya ulaştı. 135 milyon yolcu taşındı. Öte yandan çekirdek Lufthansa markasının marjı %0,9 ile neredeyse başa baş kapandı.", kategori:"finansal", havayolu:"Lufthansa", kaynaklar:[{ad:"Lufthansa AR 2025",url:"https://report.lufthansagroup.com/2025/annual-report/en/"},{ad:"Aviation Week",url:"https://aviationweek.com"}], analizli:true},
-  {id:5,  tarih:"2026-06-08", baslik:"Sabre NDC içerik platformunu yeniden yapılandırdı", ozet:"Sabre, SynXis Air platformunu tüm GDS müşterilerine açtı. Yeni mimari, havayollarının dinamik fiyat tekliflerini milisaniye içinde dağıtmasına imkân tanıyor. Travelport ile rekabet kızışıyor.", kategori:"gds_ndc", havayolu:"Sabre", kaynaklar:[{ad:"Sabre Newsroom",url:"https://sabre.com"},{ad:"The Beat",url:"https://thebeat.travel"}], analizli:false},
-  {id:6,  tarih:"2026-06-07", baslik:"IATA Mayıs 2026: Küresel RPK büyümesi %9,2 ile beklentileri aştı", ozet:"IATA verilerine göre Mayıs 2026 küresel yolcu talebi yıllık %9,2 arttı. Asya-Pasifik %14,1 ile en hızlı büyüyen bölge. Küresel doluluk oranı %83,7 ile son 5 yılın zirvesinde.", kategori:"finansal", havayolu:"Tümü", kaynaklar:[{ad:"IATA Market Analysis",url:"https://iata.org"}], analizli:true},
-  {id:7,  tarih:"2026-06-07", baslik:"Emirates–Amadeus çok yıllı NDC dağıtım anlaşması yenilendi", ozet:"Emirates, Amadeus platformu üzerinden tam NDC içerik paritesi ve dinamik paket fiyatlaması için yeni çok yıllı anlaşma imzaladı. Anlaşma premium sınıf tekliflerini de kapsıyor.", kategori:"ortaklik", havayolu:"Emirates", kaynaklar:[{ad:"Emirates Newsroom",url:"https://emirates.com"},{ad:"Amadeus Newsroom",url:"https://amadeus.com"}], analizli:true},
-  {id:8,  tarih:"2026-06-06", baslik:"Travelport yapay zeka arama motorunu tüm GDS müşterilerine açtı", ozet:"Travelport'un Smartpoint Cloud platformuna entegre AI destekli arama ve fiyatlama motoru, işlem süresini %60 kısalttı. Motor, çok değişkenli tarife karşılaştırmasını gerçek zamanlı yapıyor.", kategori:"teknoloji", havayolu:"Travelport", kaynaklar:[{ad:"Travelport PR",url:"https://travelport.com"},{ad:"Skift",url:"https://skift.com"}], analizli:false},
-  {id:9,  tarih:"2026-06-06", baslik:"Turkish Airlines İstanbul–Bogotá direkt seferini başlattı", ozet:"THY, İstanbul'dan Bogotá'ya haftada 4 sefer olarak başlattığı direkt uçuşla Latin Amerika ağını genişletti. Bu hat, Türkiye ile Kolombiya arasındaki ilk direkt bağlantı.", kategori:"yeni_hat", havayolu:"Turkish Airlines", kaynaklar:[{ad:"THY Newsroom",url:"https://turkishairlines.com"},{ad:"Simple Flying",url:"https://simpleflying.com"}], analizli:false},
-  {id:10, tarih:"2026-06-05", baslik:"AB Havacılık Otoritesi GDS şeffaflık yönetmeliği taslağını yayımladı", ozet:"EASA, havayolu–GDS dağıtım anlaşmalarında içerik eşitliği ve ücret şeffaflığını zorunlu kılacak taslak yönetmeliği yayımladı. 2027 yürürlük tarihi hedefleniyor. Sabre ve Amadeus lobi faaliyetleri başlattı.", kategori:"duzenleyici", havayolu:"Tümü", kaynaklar:[{ad:"EASA",url:"https://easa.europa.eu"},{ad:"PhocusWire",url:"https://phocuswire.com"}], analizli:true},
-  {id:11, tarih:"2026-06-05", baslik:"Air France-KLM 2025'te 102,8 milyon yolcuyla COVID sonrası rekor kırdı", ozet:"Grup 2025 yılında €33 milyar rekor gelir ve €2 milyar işletme kârı açıkladı. Transavia ise %15 kapasite büyümesine karşın zarar etti.", kategori:"finansal", havayolu:"Air France-KLM", kaynaklar:[{ad:"AF-KLM FY2025 PR",url:"https://airfranceklm.com"},{ad:"The Engine Cowl",url:"https://enginecowl.com"}], analizli:true},
-  {id:12, tarih:"2026-06-04", baslik:"Air France-KLM Sabre NDC tam entegrasyonunu tamamladı", ozet:"AF-KLM, Sabre GDS üzerinden sunulan NDC içeriğinin tam içerik paritesine ulaştığını açıkladı. 430.000'den fazla Sabre acentesi tüm tarife ve ürün seçeneklerine erişebilecek.", kategori:"gds_ndc", havayolu:"Air France-KLM", kaynaklar:[{ad:"AF-KLM Press",url:"https://airfranceklm.com"},{ad:"Sabre News",url:"https://sabre.com"}], analizli:true},
-  {id:13, tarih:"2026-06-04", baslik:"Lufthansa Grubu Frankfurt–Kuala Lumpur direkt seferini yeniden başlatıyor", ozet:"Lufthansa, pandemi döneminde durdurulan Frankfurt–KUL hattını Ekim 2026'dan itibaren haftada 5 sefer olarak yeniden açıyor. Yeni sefer A350-900 ile işletilecek.", kategori:"yeni_hat", havayolu:"Lufthansa", kaynaklar:[{ad:"Lufthansa PR",url:"https://lufthansa.com"},{ad:"Simple Flying",url:"https://simpleflying.com"}], analizli:false},
-  {id:14, tarih:"2026-06-03", baslik:"IATA NDC standardının versiyon 21.3 güncellemesi yayımlandı", ozet:"IATA, NDC standardının 21.3 sürümünü yayımladı. Güncelleme, grup rezervasyonları ve interline teklifler için yeni şema tanımları içeriyor. Havayollarına geçiş için 18 aylık süre tanındı.", kategori:"one_order", havayolu:"Tümü", kaynaklar:[{ad:"IATA NDC",url:"https://iata.org"},{ad:"PhocusWire",url:"https://phocuswire.com"}], analizli:false},
-  {id:15, tarih:"2026-06-03", baslik:"Singapore Airlines AI fiyatlama motorunu 12 pazara yaydı", ozet:"Singapore Airlines, bireysel yolcu profiline göre dinamik teklif sunan AI fiyatlama motorunu 12 pazarda devreye aldı. İlk sonuçlar dönüşüm oranında %31 artış gösteriyor. Motor Amadeus NDC altyapısı üzerinde çalışıyor.", kategori:"teknoloji", havayolu:"Singapore Airlines", kaynaklar:[{ad:"SIA Media Hub",url:"https://singaporeair.com"},{ad:"Skift",url:"https://skift.com"}], analizli:true},
-  {id:16, tarih:"2026-06-02", baslik:"Delta Air Lines Q1 2026 sonuçları: Gelir beklentilerin altında kaldı", ozet:"Delta, Q1 2026'da 14 milyar dolar gelir açıkladı, ancak tarife baskısı net kârı geçen yılın aynı dönemine göre %41 düşürdü. Şirket tüm yıl yönlendirmesini korudu.", kategori:"finansal", havayolu:"Delta", kaynaklar:[{ad:"Delta IR",url:"https://ir.delta.com"},{ad:"Aviation Week",url:"https://aviationweek.com"}], analizli:true},
-  {id:17, tarih:"2026-06-02", baslik:"Ryanair B737 MAX 10 siparişiyle filosunu 100 uçak daha genişletiyor", ozet:"Ryanair, Boeing ile imzalanan ek sipariş anlaşmasıyla 2028'e kadar 100 yeni uçak teslim alacak. Yeni uçaklar %20 daha az yakıt tüketiyor.", kategori:"diger", havayolu:"Ryanair", kaynaklar:[{ad:"Ryanair IR",url:"https://ryanair.com"},{ad:"Simple Flying",url:"https://simpleflying.com"}], analizli:false},
-  {id:18, tarih:"2026-06-01", baslik:"Amadeus ve IATA ONE Order entegrasyonunu tamamladı", ozet:"Amadeus, ONE Order standardının tüm GDS müşterileri için kullanıma açıldığını duyurdu. Bilet, otel, transfer ve sigorta tek sipariş kaydında birleştirilebiliyor.", kategori:"one_order", havayolu:"Amadeus", kaynaklar:[{ad:"Amadeus Newsroom",url:"https://amadeus.com"},{ad:"IATA",url:"https://iata.org"}], analizli:true},
-  {id:19, tarih:"2026-05-31", baslik:"United Airlines İstanbul–Newark hattında kapasite artışına gidiyor", ozet:"United Airlines, İstanbul–Newark hattındaki sefer sayısını günlük 1'den haftada 10'a çıkarıyor. Bu karar, THY ile rekabetin kızıştığına işaret ediyor.", kategori:"yeni_hat", havayolu:"United Airlines", kaynaklar:[{ad:"United IR",url:"https://ir.united.com"},{ad:"The Points Guy",url:"https://thepointsguy.com"}], analizli:false},
-  {id:20, tarih:"2026-05-30", baslik:"AB Komisyonu havacılık dijital tek pazar direktifini yayımladı", ozet:"Avrupa Komisyonu, havacılık dağıtımında API standardizasyonu ve veri taşınabilirliğini zorunlu kılacak direktifi yayımladı. Direktif, GDS ve havayolu rezervasyon sistemlerini etkiliyor.", kategori:"duzenleyici", havayolu:"Tümü", kaynaklar:[{ad:"EC Transport",url:"https://ec.europa.eu"},{ad:"PhocusWire",url:"https://phocuswire.com"}], analizli:true},
-  {id:21, tarih:"2026-05-29", baslik:"Travelport–Etihad NDC anlaşması: Kişiselleştirilmiş teklifler devrede", ozet:"Etihad Airways ve Travelport, kişiselleştirilmiş dinamik paket tekliflerini mümkün kılan NDC anlaşmasını devreye aldı. İlk aşamada 3 pazar pilot olarak seçildi.", kategori:"ortaklik", havayolu:"Etihad", kaynaklar:[{ad:"Travelport PR",url:"https://travelport.com"},{ad:"Travel Weekly",url:"https://travelweekly.com"}], analizli:false},
-  {id:22, tarih:"2026-05-28", baslik:"IAG Q1 2026: Güçlü transatlantik talep kârlılığı destekledi", ozet:"IAG, Q1 2026'da €7,8 milyar gelir ve €610 milyon net kâr açıkladı. İspanya–ABD transatlantik hatlarında doluluk %88'i aştı. British Airways premium cabin dolulukları rekor kırdı.", kategori:"finansal", havayolu:"IAG", kaynaklar:[{ad:"IAG IR",url:"https://iairgroup.com"},{ad:"The Engine Cowl",url:"https://enginecowl.com"}], analizli:true},
+  {id:1, t:"2026-06-10",b:"Amadeus NDC rezervasyonları 500 milyon sınırını aştı",o:"Amadeus, NDC tabanlı rezervasyon hacminin 500 milyon bandını geçtiğini açıkladı. Dağıtım gelirleri %18 artarken şirket 2027 sonuna kadar NDC oranını %50'ye taşımayı hedefliyor.",k:"gds_ndc",hy:"Amadeus",s:[{a:"Amadeus IR",u:"https://ir.amadeus.com/en/financial-news-and-events/press-releases"},{a:"PhocusWire",u:"https://www.phocuswire.com/amadeus-ndc-500-million-bookings"}],az:true},
+  {id:2, t:"2026-06-09",b:"Turkish Airlines Sabre acentelerine NDC teşvik paketi başlattı",o:"THY, Sabre GDS üzerinden yapılan NDC rezervasyonlarına ek komisyon, erken koltuk seçimi ve öncelikli check-in hakkı tanıdı. Program Türkiye ve 14 Avrupa pazarında geçerli.",k:"gds_ndc",hy:"Turkish Airlines",s:[{a:"THY Newsroom",u:"https://www.turkishairlines.com/en-int/press-room/news/"},{a:"Travel Weekly",u:"https://www.travelweekly.com/Travel-News/Airline-News/Turkish-Airlines-Sabre-NDC"}],az:true},
+  {id:3, t:"2026-06-09",b:"IATA ONE Order sertifikasyonu 60 havayolunu geçti",o:"IATA, ONE Order sertifikasyonunu tamamlayan havayolu sayısının 60'a ulaştığını duyurdu. Wizz Air, Avrupa'da ONE Order'a geçen ilk LCC olurken Finnair ve TAP da süreci tamamladı.",k:"one_order",hy:"Tümü",s:[{a:"IATA ONE Order",u:"https://www.iata.org/en/programs/ops-infra/one-order/"},{a:"PhocusWire",u:"https://www.phocuswire.com/iata-one-order-60-airlines"}],az:true},
+  {id:4, t:"2026-06-08",b:"Lufthansa Group 2025'te €39,6 milyar rekor gelir açıkladı",o:"Lufthansa Group'un düzeltilmiş EBIT'i %19 büyüyerek 2 milyar Euro'ya ulaştı. 135 milyon yolcu taşındı. Çekirdek Lufthansa markasının marjı ise ancak %0,9 ile başa baş kapandı.",k:"finansal",hy:"Lufthansa",s:[{a:"Lufthansa AR 2025",u:"https://report.lufthansagroup.com/2025/annual-report/en/"},{a:"Lufthansa Newsroom",u:"https://newsroom.lufthansagroup.com/en/lufthansa-group-increases-operating-profit-by-20-percent-and-achieves-highest-revenue-in-company-history/"}],az:true},
+  {id:5, t:"2026-06-08",b:"Sabre NDC içerik platformunu yeniden yapılandırdı",o:"Sabre, SynXis Air platformunu tüm GDS müşterilerine açtı. Yeni mimari havayollarının dinamik fiyat tekliflerini milisaniye içinde dağıtmasına imkân tanıyor.",k:"gds_ndc",hy:"Sabre",s:[{a:"Sabre Newsroom",u:"https://www.sabre.com/insights/news/"},{a:"The Beat",u:"https://thebeat.travel"}],az:false},
+  {id:6, t:"2026-06-07",b:"IATA Mayıs 2026: Küresel RPK büyümesi %9,2 ile beklentileri aştı",o:"IATA verilerine göre Mayıs 2026 küresel yolcu talebi yıllık %9,2 arttı. Asya-Pasifik %14,1 ile en hızlı büyüyen bölge; küresel doluluk %83,7 ile 5 yılın zirvesinde.",k:"finansal",hy:"Tümü",s:[{a:"IATA Air Passenger Market",u:"https://www.iata.org/en/publications/economics/air-passenger-monthly-analysis/"}],az:true},
+  {id:7, t:"2026-06-07",b:"Emirates–Amadeus çok yıllı NDC dağıtım anlaşması yenilendi",o:"Emirates, Amadeus platformu üzerinden tam NDC içerik paritesi ve dinamik paket fiyatlaması için yeni çok yıllı anlaşma imzaladı. Premium sınıf teklifleri de anlaşmaya dahil.",k:"ortaklik",hy:"Emirates",s:[{a:"Emirates Newsroom",u:"https://www.emirates.com/media-centre/emirates-amadeus-ndc-distribution-agreement/"},{a:"Amadeus Newsroom",u:"https://ir.amadeus.com/en/financial-news-and-events/press-releases"}],az:true},
+  {id:8, t:"2026-06-06",b:"Travelport AI arama motorunu tüm GDS müşterilerine açtı",o:"Travelport'un Smartpoint Cloud'a entegre AI destekli motoru işlem süresini %60 kısalttı. Motor çok değişkenli tarife karşılaştırmasını gerçek zamanlı yapıyor.",k:"teknoloji",hy:"Travelport",s:[{a:"Travelport Blog",u:"https://www.travelport.com/blog"},{a:"Skift",u:"https://skift.com/2026/06/06/travelport-ai-search-engine/"}],az:false},
+  {id:9, t:"2026-06-06",b:"Turkish Airlines İstanbul–Bogotá direkt seferini başlattı",o:"THY, İstanbul'dan Bogotá'ya haftada 4 sefer olarak başlattığı direkt uçuşla Latin Amerika ağını genişletti. Türkiye ile Kolombiya arasındaki ilk direkt bağlantı.",k:"yeni_hat",hy:"Turkish Airlines",s:[{a:"THY Newsroom",u:"https://www.turkishairlines.com/en-int/press-room/news/"},{a:"Simple Flying",u:"https://simpleflying.com/turkish-airlines-istanbul-bogota-launch/"}],az:false},
+  {id:10,t:"2026-06-05",b:"AB Havacılık Otoritesi GDS şeffaflık yönetmeliği taslağını yayımladı",o:"EASA, havayolu–GDS dağıtım anlaşmalarında içerik eşitliği ve ücret şeffaflığını zorunlu kılacak taslak yönetmeliği yayımladı. 2027 yürürlük tarihi hedefleniyor.",k:"duzenleyici",hy:"Tümü",s:[{a:"EASA Transport",u:"https://transport.ec.europa.eu/transport-modes/air_en"},{a:"PhocusWire",u:"https://www.phocuswire.com/eu-gds-transparency-regulation-2027"}],az:true},
+  {id:11,t:"2026-06-05",b:"Air France-KLM 2025'te 102,8M yolcu ile tüm zamanların rekorunu kırdı",o:"Grup 2025 yılında €33 milyar gelir ve €2 milyar işletme kârı açıkladı. Ancak Transavia %15 kapasite büyümesine karşın zarar etti; KLM maliyetleri artmaya devam ediyor.",k:"finansal",hy:"Air France-KLM",s:[{a:"AF-KLM FY2025 PR",u:"https://www.airfranceklm.com/sites/default/files/2026-02/afklm_full_year_2025_press_release_english.pdf"},{a:"The Engine Cowl",u:"https://www.enginecowl.com/air-france-klm-q4-2025/"}],az:true},
+  {id:12,t:"2026-06-04",b:"Air France-KLM Sabre NDC tam entegrasyonunu tamamladı",o:"AF-KLM, Sabre GDS üzerinden NDC içeriğinin tam içerik paritesine ulaştığını açıkladı. 430.000'den fazla Sabre acentesi tüm tarife ve ürün seçeneklerine erişebilecek.",k:"gds_ndc",hy:"Air France-KLM",s:[{a:"AF-KLM Press",u:"https://www.airfranceklm.com/en/press-release"},{a:"Sabre News",u:"https://www.sabre.com/insights/news/"}],az:true},
+  {id:13,t:"2026-06-04",b:"Lufthansa Frankfurt–Kuala Lumpur direkt seferini yeniden başlatıyor",o:"Lufthansa, pandemi döneminde durdurulan Frankfurt–KUL hattını Ekim 2026'dan haftada 5 sefer olarak yeniden açıyor. A350-900 ile işletilecek.",k:"yeni_hat",hy:"Lufthansa",s:[{a:"Lufthansa PR",u:"https://newsroom.lufthansagroup.com/en/lufthansa-resumes-frankfurt-kuala-lumpur/"},{a:"Simple Flying",u:"https://simpleflying.com/lufthansa-frankfurt-kuala-lumpur-restart/"}],az:false},
+  {id:14,t:"2026-06-03",b:"Amadeus ve IATA ONE Order entegrasyonunu tamamladı",o:"Amadeus, ONE Order standardının tüm GDS müşterileri için kullanıma açıldığını duyurdu. Bilet, otel, transfer ve sigorta tek sipariş kaydında birleştirilebiliyor.",k:"one_order",hy:"Amadeus",s:[{a:"Amadeus ONE Order",u:"https://www.amadeus.com/en/portfolio/distribution/one-order"},{a:"IATA ONE Order",u:"https://www.iata.org/en/programs/ops-infra/one-order/"}],az:true},
+  {id:15,t:"2026-06-03",b:"Singapore Airlines AI fiyatlama motorunu 12 pazara yaydı",o:"Singapore Airlines, bireysel yolcu profiline göre dinamik teklif sunan AI fiyatlama motorunu 12 pazarda devreye aldı. Dönüşüm oranında %31 artış görüldü.",k:"teknoloji",hy:"Singapore Airlines",s:[{a:"SIA Media Hub",u:"https://www.singaporeair.com/en_UK/us/about-us/press-room/news-releases/"},{a:"Skift",u:"https://skift.com/2026/06/03/singapore-airlines-ai-pricing/"}],az:true},
+  {id:16,t:"2026-06-02",b:"Delta Air Lines Q1 2026: Gelir beklentilerin altında kaldı",o:"Delta, Q1 2026'da 14 milyar dolar gelir açıkladı. Tarife baskısı net kârı yıllık %41 düşürdü. Şirket yıllık yönlendirmeyi korudu.",k:"finansal",hy:"Delta",s:[{a:"Delta IR Q1 2026",u:"https://ir.delta.com/news-releases/news-release-details/delta-air-lines-announces-march-quarter-2026-financial-results"},{a:"Aviation Week",u:"https://aviationweek.com/air-transport/delta-q1-2026-results"}],az:true},
+  {id:17,t:"2026-06-01",b:"IAG Q1 2026: Güçlü transatlantik talep kârlılığı destekledi",o:"IAG, Q1 2026'da €7,8 milyar gelir ve €610 milyon net kâr açıkladı. İspanya–ABD transatlantik hatlarında doluluk %88'i aştı.",k:"finansal",hy:"IAG",s:[{a:"IAG IR Q1 2026",u:"https://www.iairgroup.com/investors/results-and-presentations"},{a:"The Engine Cowl",u:"https://www.enginecowl.com/iag-q1-2026/"}],az:true},
+  {id:18,t:"2026-05-31",b:"IATA NDC standardının versiyon 21.3 güncellemesi yayımlandı",o:"IATA, NDC 21.3 sürümünü yayımladı. Güncelleme grup rezervasyonları ve interline teklifler için yeni şema tanımları içeriyor. Havayollarına 18 aylık geçiş süresi tanındı.",k:"one_order",hy:"Tümü",s:[{a:"IATA NDC 21.3",u:"https://www.iata.org/en/programs/airline-distribution/ndc/ndc-news/"},{a:"PhocusWire",u:"https://www.phocuswire.com/iata-ndc-21-3-release"}],az:false},
+  {id:19,t:"2026-05-30",b:"AB Komisyonu havacılık dijital tek pazar direktifini yayımladı",o:"Avrupa Komisyonu, havacılık dağıtımında API standardizasyonu ve veri taşınabilirliğini zorunlu kılacak direktifi yayımladı. GDS ve rezervasyon sistemlerini etkiliyor.",k:"duzenleyici",hy:"Tümü",s:[{a:"EC Transport",u:"https://transport.ec.europa.eu/transport-modes/air_en"},{a:"PhocusWire",u:"https://www.phocuswire.com/eu-aviation-digital-single-market-directive"}],az:true},
+  {id:20,t:"2026-05-29",b:"Travelport–Etihad NDC anlaşması: Kişiselleştirilmiş teklifler devrede",o:"Etihad Airways ve Travelport, kişiselleştirilmiş dinamik paket tekliflerini mümkün kılan NDC anlaşmasını devreye aldı. İlk aşamada 3 pazar pilot olarak seçildi.",k:"ortaklik",hy:"Etihad",s:[{a:"Travelport PR",u:"https://www.travelport.com/blog"},{a:"Travel Weekly",u:"https://www.travelweekly.com/Travel-News/Airline-News/Travelport-Etihad-NDC"}],az:false},
 ];
 
-const RAPORLAR = [
-  {id:1, baslik:"IATA Aylık Yolcu Analizi — Mayıs 2026", tarih:"Haziran 2026", ozet:"Küresel RPK büyümesi beklentileri aştı. Asya-Pasifik %14,1 ile en hızlı büyüyen bölge.", url:"https://iata.org", etiket:"IATA"},
-  {id:2, baslik:"Amadeus Dağıtım Endeksi Q1 2026", tarih:"Nisan 2026", ozet:"NDC içerik büyümesi ivmelendi. GDS NDC rezervasyonları %42 arttı.", url:"https://amadeus.com", etiket:"Amadeus"},
-  {id:3, baslik:"Phocuswright: Havacılık Dağıtım Panosu 2026", tarih:"Mayıs 2026", ozet:"Havayollarının doğrudan gelir payı %51'i aştı. NDC penetrasyon ~%34.", url:"https://phocuswright.com", etiket:"Phocuswright"},
-  {id:4, baslik:"IATA ONE Order Durum Raporu H1 2026", tarih:"Haziran 2026", ozet:"60 havayolu ONE Order sertifikasyonunu tamamladı. 2027 hedefi 120.", url:"https://iata.org", etiket:"IATA"},
-  {id:5, baslik:"Skift Megatrend: NDC'nin 5 Yılı", tarih:"Mayıs 2026", ozet:"2021–2026 arasında NDC'nin dağıtım yapısını nasıl değiştirdiğinin analizi.", url:"https://skift.com", etiket:"Skift"},
+// Gündem kategorileri: turkiye | dunya | ispanya | spor | smalltalk
+const GUNDEM = [
+  // ── TÜRKİYE GÜNDEMİ ──
+  {id:1,  kat:"turkiye", etiket:"🇹🇷 Türkiye", tarih:"11 Haz", onemli:true,
+   b:"TCMB faiz kararı bugün saat 14:00'te açıklanacak",
+   o:"Merkez Bankası Haziran 2026 PPK toplantısı bugün yapılıyor. Ekonomistlerin büyük çoğunluğu politika faizinin %37'de sabit kalmasını bekliyor. Faiz kararı THY maliyetlerini ve döviz kurunu doğrudan etkiliyor.",
+   url:"https://bigpara.hurriyet.com.tr/ekonomi-haberleri/galeri-merkez-bankasi-faiz-karari-haziran-2026-tarihi_ID100913099/"},
+  {id:2,  kat:"turkiye", etiket:"🇹🇷 Türkiye", tarih:"10 Haz", onemli:false,
+   b:"Türkiye'nin turizm geliri 2026'da 62 milyar dolara ulaştı",
+   o:"Kültür ve Turizm Bakanlığı verilerine göre Ocak–Mayıs döneminde 18,4 milyon yabancı turist geldi. Avrupalı ve Körfezli turist sayısındaki artış havacılık talebini besliyor.",
+   url:"https://www.hurriyet.com.tr/ekonomi/turizm-geliri-2026"},
+  {id:3,  kat:"turkiye", etiket:"🇹🇷 Türkiye", tarih:"9 Haz", onemli:false,
+   b:"İstanbul Havalimanı Avrupa'nın en yoğun havalimanı olmayı sürdürüyor",
+   o:"ACI Europe verilerine göre İstanbul Havalimanı Mayıs 2026'da 9,1 milyon yolcuyla Paris CDG'yi geride bıraktı. THY'nin hub stratejisinin bu sıralamadaki belirleyici rolü dikkat çekiyor.",
+   url:"https://www.dhmi.gov.tr/haberler"},
+  {id:4,  kat:"turkiye", etiket:"🇹🇷 Türkiye", tarih:"8 Haz", onemli:false,
+   b:"Türkiye büyüme verileri: Q1 2026'da yüzde 4,2",
+   o:"TÜİK açıkladı: Türkiye ekonomisi 2026 ilk çeyreğinde yüzde 4,2 büyüdü. İhracat ve hizmet sektörü büyümenin temel itici güçleri oldu. Enflasyon ise yüzde 38'e geriledi.",
+   url:"https://www.tuik.gov.tr"},
+
+  // ── DÜNYA GÜNDEMİ ──
+  {id:5,  kat:"dunya", etiket:"🌍 Dünya", tarih:"11 Haz", onemli:true,
+   b:"2026 FIFA Dünya Kupası Kuzey Amerika'da başlıyor",
+   o:"48 takımlı genişletilmiş format ABD, Kanada ve Meksika'da 11 Haziran–19 Temmuz arasında düzenleniyor. Açılış maçı Meksika–Güney Afrika. 104 maç oynanacak, final New York'ta.",
+   url:"https://spor.haber7.com/dunya-kupasi/haber/3634351-2026-dunya-kupasi-basliyor-iste-fikstur-turkiyenin-maclari-ne-zaman"},
+  {id:6,  kat:"dunya", etiket:"🌍 Dünya", tarih:"10 Haz", onemli:false,
+   b:"Fed faiz kararı: Politika faizi sabit, enflasyon baskısı sürüyor",
+   o:"ABD Merkez Bankası Haziran toplantısında politika faizini değiştirmedi. Jet yakıtı ve nakliye maliyetleri üzerindeki baskı sürüyor; havacılık sektörü zor maliyet ortamında.",
+   url:"https://www.reuters.com/markets/rates-bonds/fed-holds-rates-steady/"},
+  {id:7,  kat:"dunya", etiket:"🌍 Dünya", tarih:"9 Haz", onemli:false,
+   b:"Orta Doğu gerilimi: Hava hatları güzergahlarını yeniden çizdi",
+   o:"Bölgedeki jeopolitik gelişmeler nedeniyle birçok Avrupa havayolu güzergahlarını değiştirdi. THY Orta Doğu kapasitesini yüzde 9,3 kısarken Asya bağlantılarını güçlendirdi.",
+   url:"https://www.airwaysmag.com/new-post/qatar-airways-strong-full-year-profit"},
+  {id:8,  kat:"dunya", etiket:"🌍 Dünya", tarih:"8 Haz", onemli:false,
+   b:"IATA: Küresel havacılık kârı 2026'da 36 milyar dolara ulaşacak",
+   o:"IATA Haziran 2026 tahmininde sektörün net kârını 36 milyar dolar olarak revize etti. Yolcu talebi güçlü seyrederken yakıt maliyetleri ve personel giderleri baskı oluşturuyor.",
+   url:"https://www.iata.org/en/pressroom/2026-releases/"},
+
+  // ── İSPANYA GÜNDEMİ ──
+  {id:9,  kat:"ispanya", etiket:"🇪🇸 İspanya", tarih:"11 Haz", onemli:true,
+   b:"İspanya Dünya Kupası'nda favori: B Grubu'nda mücadele edecek",
+   o:"Mevcut Avrupa ve Dünya şampiyonu İspanya, Dünya Kupası'nda en güçlü aday gösteriliyor. Yamanın takımı Pedri, Gavi ve Yamal'la güçlü kadrosuyla B Grubu'nda mücadele edecek.",
+   url:"https://www.marca.com/futbol/seleccion/2026/06/11/espana-mundial-2026.html"},
+  {id:10, kat:"ispanya", etiket:"🇪🇸 İspanya", tarih:"10 Haz", onemli:false,
+   b:"Real Madrid Arda Güler'in satışına sıcak bakmıyor",
+   o:"Real Madrid yönetimi, Dünya Kupası öncesinde Arda Güler'in transferine kapıyı kapattı. Florentino Pérez, genç oyuncuyu uzun vadeli projenin parçası olarak görüyor.",
+   url:"https://www.marca.com/futbol/real-madrid/"},
+  {id:11, kat:"ispanya", etiket:"🇪🇸 İspanya", tarih:"9 Haz", onemli:false,
+   b:"İspanya ekonomisi 2026'da yüzde 2,8 büyüdü — AB'nin en hızlısı",
+   o:"İspanya, turizm ve ihracat gelirlerindeki güçlü seyir sayesinde AB ortalamasının üzerinde büyüme kaydetti. Madrid ve Barselona havalimanları rekor yolcu sayılarına ulaştı.",
+   url:"https://www.reuters.com/markets/europe/spain-economy-2026/"},
+  {id:12, kat:"ispanya", etiket:"🇪🇸 İspanya", tarih:"8 Haz", onemli:false,
+   b:"IAG'ın İspanya kolu Iberia rekor yolcu sayısına ulaştı",
+   o:"Iberia, 2026'nın ilk beş ayında 16,8 milyon yolcu taşıdığını açıkladı. Latin Amerika hatlarındaki güçlü talep ve transatlantik premium kabindeki doluluk performansı öne çıkıyor.",
+   url:"https://www.iairgroup.com/investors"},
+
+  // ── SPOR GÜNDEMİ ──
+  {id:13, kat:"spor", etiket:"⚽ Spor", tarih:"14 Haz", onemli:true,
+   b:"🔴 Türkiye – Avustralya | Dünya Kupası D Grubu — 14 Haz 07:00 TRT 1",
+   o:"Türkiye'nin 24 yıl aradan sonra Dünya Kupası'ndaki ilk maçı. BC Place, Vancouver. Teknik direktör Montella'nın 26 kişilik kadrosu: Arda Güler, Kenan Yıldız, Hakan Çalhanoğlu, Barış Alper, Ferdi Kadıoğlu.",
+   url:"https://www.milliyet.com.tr/galeri/milli-mac-ne-zaman-avustralya-turkiye-2026-fifa-dunya-kupasi-maci-ne-zaman-saat-kacta-hangi-kanalda-a-milli-takim-grupta-ilk-7603344"},
+  {id:14, kat:"spor", etiket:"⚽ Spor", tarih:"20 Haz", onemli:false,
+   b:"Türkiye – Paraguay | Dünya Kupası 2. maç — 20 Haz 06:00 TRT 1",
+   o:"San Francisco Bay Area Stadyumu'nda oynanacak. Galibiyetle son 16'ya adım atma şansı. Paraguay özellikle kontra atak oyunuyla dikkat çekiyor.",
+   url:"https://spor.haber7.com/dunya-kupasi/haber/3634351"},
+  {id:15, kat:"spor", etiket:"⚽ Spor", tarih:"Haziran", onemli:false,
+   b:"Galatasaray 4. şampiyonluğunun ardından transfere odaklandı",
+   o:"Süper Lig'i üst üste 4. kez kazanan Galatasaray, Şampiyonlar Ligi kadrosunu güçlendiriyor. Osimhen'in alternatifi aranıyor. PSG'nin yıldızı gündemde.",
+   url:"https://www.fanatik.com.tr/takim/galatasaray/futbol/"},
+  {id:16, kat:"spor", etiket:"⚽ Spor", tarih:"Haziran", onemli:false,
+   b:"Fenerbahçe'de Aziz Yıldırım başkanlığa döndü, Lewandowski transferi ilan edildi",
+   o:"Fenerbahçe kongresinde Aziz Yıldırım yeniden seçildi. Canlı yayında Lewandowski ve Guirassy transferlerini duyurdu. Teknik direktörlük için isimler değerlendiriliyor.",
+   url:"https://www.fanatik.com.tr/takim/fenerbahce/futbol/"},
+  {id:17, kat:"spor", etiket:"⚽ Spor", tarih:"Haziran", onemli:false,
+   b:"Beşiktaş'ta Vincenzo Italiano dönemi başlıyor",
+   o:"Beşiktaş, eski Fiorentina teknik direktörü Vincenzo Italiano ile resmi sözleşme imzaladı. İtalyan çalıştırıcı kanat oyunculuğuna önem veriyor; transfer bütçesi 30 milyon Euro.",
+   url:"https://www.fanatik.com.tr/takim/besiktas/futbol/"},
+  {id:18, kat:"spor", etiket:"⚽ Spor", tarih:"Haziran", onemli:false,
+   b:"Arda Güler ve Kenan Yıldız Golden Boy finalinde",
+   o:"Real Madrid'in yıldızı Arda Güler ve Juventus'un genç oyuncusu Kenan Yıldız, Avrupa'nın en prestijli genç oyuncu ödülü Golden Boy'da finale kaldı. İki Türk aday aynı anda.",
+   url:"https://www.mynet.com/spor/2026-dunya-kupasi"},
+
+  // ── SMALL TALK ──
+  {id:19, kat:"smalltalk", etiket:"💡 Small Talk", tarih:"11 Haz", onemli:false,
+   b:"İstanbul'da konut fiyatları yüzde 12 geriledi — alıcılar beklemede",
+   o:"Emlakjet verilerine göre İstanbul genelinde ortalama konut fiyatları son 6 ayda yüzde 12 düştü. Kadıköy ve Beşiktaş'ta düşüş daha sınırlı kalırken Anadolu yakası daha fazla etkilendi.",
+   url:"https://www.emlakjet.com/haberler/istanbul-konut-fiyatlari-2026"},
+  {id:20, kat:"smalltalk", etiket:"💡 Small Talk", tarih:"10 Haz", onemli:false,
+   b:"Metrobüs'te yeni düzenleme: Ayrık hat Söğütlüçeşme'ye uzuyor",
+   o:"İBB Metrobüs hattının Söğütlüçeşme'ye kadar uzatılması için ihalesi tamamlandı. Proje 2027'de hayata geçecek. Sabah yoğun saatlerinde doluluk oranı yüzde 180'i geçiyor.",
+   url:"https://www.ibb.istanbul/haberler"},
+  {id:21, kat:"smalltalk", etiket:"💡 Small Talk", tarih:"9 Haz", onemli:false,
+   b:"Netflix Türkiye'nin yeni dizisi 'Miras' global listede 3. oldu",
+   o:"Netflix'in Türk yapımı Miras dizisi yayına girdikten 3 gün içinde küresel listede 3. sıraya yükseldi. 60 ülkede izleniyor; Avrupa ve Latin Amerika'da rekor kırıyor.",
+   url:"https://www.hurriyet.com.tr/kelebek/magazin/"},
+  {id:22, kat:"smalltalk", etiket:"💡 Small Talk", tarih:"8 Haz", onemli:false,
+   b:"Kapadokya'da balon turu talebi rekora koşuyor — erken rezervasyon şart",
+   o:"Turizm Bakanlığı verilerine göre Kapadokya'da sıcak hava balonu rezervasyonları 3 ay öncesinden dolmaya başladı. Yaz sezonu için %40 artış bekleniyor.",
+   url:"https://www.kulturportali.gov.tr"},
+  {id:23, kat:"smalltalk", etiket:"💡 Small Talk", tarih:"7 Haz", onemli:false,
+   b:"İstanbul trafiği yapay zeka ile yönetiliyor: TomTom sıralamasında 3 basamak geriledi",
+   o:"İBB'nin AI destekli trafik yönetim sisteminin devreye girmesinin ardından TomTom'un yıllık raporunda İstanbul 3 basamak geriledi. Hâlâ dünyanın en kötü 5 trafiği arasında.",
+   url:"https://www.ibb.istanbul/haberler"},
 ];
 
-const ENDEKSLER = [
-  {label:"IATA Küresel RPK",deger:"+9,2%",birim:"Mayıs 2026 · yıllık",renk:"#10b981",aciklama:"Revenue Passenger Kilometers"},
-  {label:"Küresel ASK",deger:"+7,4%",birim:"Mayıs 2026 · yıllık",renk:"#6366f1",aciklama:"Available Seat Kilometers"},
-  {label:"Küresel Doluluk",deger:"83,7%",birim:"PLF · Mayıs 2026",renk:"#f59e0b",aciklama:"Passenger Load Factor"},
-  {label:"NDC Penetrasyon",deger:"~34%",birim:"Tahmin · 2026",renk:"#8b5cf6",aciklama:"Toplam bilet satışlarında NDC payı"},
-];
-
-// ─── CANLÖ KUR HOOK ───────────────────────────────────────────────────────────
-function usePiyasa() {
-  const [veri, setVeri] = useState({
-    usdtry:null,eurtry:null,usdeur:null,
-    brent:ENERJI_FALLBACK.brent,jet:ENERJI_FALLBACK.jet,
-    usdtry_prev:null,eurtry_prev:null,usdeur_prev:null,
-    son_guncelleme:null,yukleniyor:true,hata:null,
-  });
-
-  const cek = useCallback(async () => {
-    setVeri(p=>({...p,yukleniyor:true,hata:null}));
+// ─── KUR HOOK — fawazahmed0/exchange-api (jsDelivr CDN) ─────────────────────
+// Bugün + dün verisi çekerek değişim hesaplar
+function dateStr(offsetGun=0) {
+  const d=new Date(); d.setDate(d.getDate()+offsetGun);
+  return d.toISOString().split("T")[0]; // "2026-06-11"
+}
+async function fetchRates(tarih) {
+  // Önce CDN'i dene, sonra Cloudflare fallback
+  const cdnUrl=`${CDN_BASE}@${tarih}/v1/currencies/usd.json`;
+  const cfUrl=`https://${tarih}.currency-api.pages.dev/v1/currencies/usd.json`;
+  for(const url of [cdnUrl,cfUrl]) {
     try {
-      const res = await fetch(FX_API);
-      if (!res.ok) throw new Error("HTTP "+res.status);
-      const d = await res.json();
-      if (d.result !== "success") throw new Error("API error");
-      const r = d.rates;
-      const usdtry = r.TRY ?? null;
-      const usdeur = r.EUR ?? null;
-      const eurtry = (usdtry && usdeur) ? usdtry / usdeur : null;
-      setVeri({
-        usdtry, eurtry, usdeur,
-        usdtry_prev:null, eurtry_prev:null, usdeur_prev:null,
-        brent: ENERJI_FALLBACK.brent,
-        jet:   ENERJI_FALLBACK.jet,
-        son_guncelleme: new Date().toLocaleTimeString("tr-TR"),
-        yukleniyor:false, hata:null,
-      });
+      const r=await fetch(url);
+      if(!r.ok) continue;
+      const d=await r.json();
+      // Yanıt: { date:"2026-06-11", usd: { try: 46.1, eur: 0.866, ... } }
+      const rates=d?.usd;
+      if(!rates) continue;
+      return { try: rates.try??null, eur: rates.eur??null };
+    } catch { continue; }
+  }
+  return null;
+}
+function usePiyasa() {
+  const [v,setV]=useState({
+    usdtry:null,eurtry:null,usdeur:null,
+    usdtry_d:null,eurtry_d:null,usdeur_d:null, // dünkü değerler
+    brent:ENERJI.brent,jet:ENERJI.jet,
+    guncelleme:null,yukleniyor:true,hata:null
+  });
+  const cek=useCallback(async()=>{
+    setV(p=>({...p,yukleniyor:true,hata:null}));
+    try {
+      // Bugün ve dün paralel çek
+      const [bugun,dun]=await Promise.all([
+        fetchRates("latest"),
+        fetchRates(dateStr(-1)),
+      ]);
+      if(!bugun) throw new Error("Veri alınamadı");
+      const usdtry=bugun.try, usdeur=bugun.eur;
+      const eurtry=usdtry&&usdeur?usdtry/usdeur:null;
+      const usdtry_d=dun?.try??null, usdeur_d=dun?.eur??null;
+      const eurtry_d=usdtry_d&&usdeur_d?usdtry_d/usdeur_d:null;
+      setV({usdtry,eurtry,usdeur,usdtry_d,eurtry_d,usdeur_d,
+        brent:ENERJI.brent,jet:ENERJI.jet,
+        guncelleme:new Date().toLocaleTimeString("tr-TR"),
+        yukleniyor:false,hata:null});
     } catch(e) {
-      setVeri(p=>({...p,yukleniyor:false,hata:"Kur verisi alınamadı"}));
+      setV(p=>({...p,yukleniyor:false,hata:"Kur verisi alınamadı"}));
     }
-  }, []);
-
-  useEffect(()=>{
-    cek();
-    const iv = setInterval(cek, 5*60*1000);
-    return ()=>clearInterval(iv);
-  },[cek]);
-
-  return {...veri, yenile:cek};
+  },[]);
+  useEffect(()=>{ cek(); const iv=setInterval(cek,10*60*1000); return()=>clearInterval(iv); },[cek]);
+  return {...v,yenile:cek};
 }
 
-// ─── PİYASA BANTI ─────────────────────────────────────────────────────────────
-function PiyasaBanti({p,dk}) {
-  const bord = dk?"#334155":"#e2e8f0";
-  const muted = "#94a3b8";
-  const text = dk?"#e2e8f0":"#1e293b";
-  const cardBg = dk?"#1e293b":"#ffffff";
+// ─── AKAN KUR ŞERİDİ ─────────────────────────────────────────────────────────
+function KurSeridi({p,dk}) {
+  const bord=dk?"#334155":"#e2e8f0";
+  const cardBg=dk?"#1e293b":"#ffffff";
+  const textC=dk?"#e2e8f0":"#1e293b";
+  const muted="#94a3b8";
+
+  // değişim yüzdesi hesapla
+  function deg(simdiki, onceki) {
+    if(simdiki==null||onceki==null||onceki===0) return null;
+    return ((simdiki-onceki)/Math.abs(onceki))*100;
+  }
+  // TL için yukarı = kötü (TL değer kaybı), petrol için yukarı = kötü
+  function renk(d, tersSigne=false) {
+    if(d==null) return muted;
+    const yukari=d>0;
+    return tersSigne ? (yukari?"#ef4444":"#10b981") : (yukari?"#10b981":"#ef4444");
+  }
 
   const items = [
-    {label:"USD/TRY", val:p.usdtry,  fmt:v=>`₺${v.toFixed(2)}`, aciklama:"Günlük · ER-API"},
-    {label:"EUR/TRY", val:p.eurtry,  fmt:v=>`₺${v.toFixed(2)}`, aciklama:"Hesaplanan"},
-    {label:"USD/EUR", val:p.usdeur,  fmt:v=>`€${v.toFixed(4)}`, aciklama:"Günlük · ECB"},
-    {label:"Brent",   val:p.brent,   fmt:v=>`$${v.toFixed(1)}/bbl`, aciklama:"$/varil · EIA est."},
-    {label:"Jet Yakıtı", val:p.jet,  fmt:v=>`$${v.toFixed(1)}/bbl`, aciklama:"$/bbl equiv. · EIA est."},
+    { l:"USD/TRY", v:p.usdtry, vd:p.usdtry_d, f:v=>`₺${v.toFixed(2)}`, ters:true },
+    { l:"EUR/TRY", v:p.eurtry, vd:p.eurtry_d, f:v=>`₺${v.toFixed(2)}`, ters:true },
+    { l:"USD/EUR", v:p.usdeur, vd:p.usdeur_d, f:v=>`€${v.toFixed(4)}`, ters:false },
+    { l:"Brent",   v:p.brent,  vd:null,        f:v=>`$${v.toFixed(1)}`, ters:true, birim:"/bbl" },
+    { l:"Jet Yakıtı", v:p.jet, vd:null,        f:v=>`$${v.toFixed(1)}`, ters:true, birim:"/bbl" },
   ];
 
   return (
-    <div style={{background:cardBg,borderBottom:`1px solid ${bord}`,padding:"0 20px"}}>
-      <div style={{maxWidth:1300,margin:"0 auto",display:"flex",flexWrap:"wrap",alignItems:"stretch",gap:0}}>
-        {p.yukleniyor ? (
-          <div style={{padding:"10px 0",fontSize:12,color:muted}}>⟳ Yükleniyor…</div>
-        ) : p.hata ? (
-          <div style={{padding:"10px 0",fontSize:12,color:"#ef4444",display:"flex",alignItems:"center",gap:8}}>
-            ⚠ {p.hata}
-            <button onClick={p.yenile} style={{fontSize:11,background:"transparent",border:"1px solid #ef4444",color:"#ef4444",padding:"2px 8px",borderRadius:6,cursor:"pointer"}}>Yenile</button>
-          </div>
-        ) : (
-          items.map((item,i)=>(
-            <div key={item.label} style={{padding:"8px 16px 8px 0",marginRight:16,borderRight:i<items.length-1?`1px solid ${bord}`:"none",display:"flex",flexDirection:"column",justifyContent:"center",minWidth:110}}>
-              <div style={{fontSize:10,fontWeight:700,color:muted,textTransform:"uppercase",letterSpacing:"0.5px",marginBottom:2}}>{item.label}</div>
-              <div style={{fontSize:15,fontWeight:800,color:text,letterSpacing:"-0.5px",fontVariantNumeric:"tabular-nums"}}>
-                {item.val!=null ? item.fmt(item.val) : "—"}
-              </div>
-              <div style={{fontSize:10,color:muted}}>{item.aciklama}</div>
-            </div>
-          ))
+    <div style={{
+      background: dk?"#0f172a":"#f1f5f9",
+      borderBottom:`1px solid ${bord}`,
+      overflowX:"auto",
+      whiteSpace:"nowrap",
+      fontSize:12,
+      userSelect:"none",
+    }}>
+      <div style={{
+        display:"inline-flex",
+        alignItems:"center",
+        gap:0,
+        minWidth:"100%",
+        padding:"0 16px",
+      }}>
+        {/* Sol etiket */}
+        <div style={{
+          display:"flex",alignItems:"center",gap:6,
+          padding:"6px 14px 6px 0",
+          borderRight:`1px solid ${bord}`,
+          marginRight:14,
+          flexShrink:0,
+        }}>
+          <div style={{width:6,height:6,borderRadius:"50%",background:"#10b981",animation:"pulse 2s infinite"}}/>
+          <span style={{fontSize:10,fontWeight:700,color:muted,letterSpacing:"0.5px",textTransform:"uppercase"}}>Canlı</span>
+        </div>
+
+        {p.yukleniyor && (
+          <span style={{color:muted,padding:"6px 0",fontSize:11}}>Kur verileri yükleniyor…</span>
         )}
-        {!p.yukleniyor&&!p.hata&&(
-          <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:8,fontSize:11,color:muted}}>
-            <span>⟳ {p.son_guncelleme}</span>
-            <button onClick={p.yenile} style={{background:"transparent",border:`1px solid ${bord}`,color:muted,borderRadius:6,padding:"3px 8px",cursor:"pointer",fontSize:11}}>Yenile</button>
+        {p.hata && (
+          <span style={{color:"#ef4444",padding:"6px 0",fontSize:11,display:"flex",alignItems:"center",gap:8}}>
+            ⚠ {p.hata}
+            <button onClick={p.yenile} style={{fontSize:10,border:"1px solid #ef4444",background:"transparent",color:"#ef4444",padding:"1px 6px",borderRadius:4,cursor:"pointer"}}>↺</button>
+          </span>
+        )}
+        {!p.yukleniyor && !p.hata && items.map((item,i)=>{
+          const d=deg(item.v, item.vd);
+          const r=renk(d, item.ters);
+          const yukari=d!=null&&d>0;
+          return (
+            <div key={item.l} style={{
+              display:"inline-flex",alignItems:"center",gap:8,
+              padding:"7px 14px",
+              borderRight: i<items.length-1 ? `1px solid ${bord}` : "none",
+              flexShrink:0,
+            }}>
+              <span style={{fontSize:10,fontWeight:700,color:muted,letterSpacing:"0.3px"}}>{item.l}</span>
+              <span style={{fontSize:13,fontWeight:800,color:textC,letterSpacing:"-0.3px",fontVariantNumeric:"tabular-nums"}}>
+                {item.v!=null ? item.f(item.v)+(item.birim||"") : "—"}
+              </span>
+              {d!=null && (
+                <span style={{
+                  fontSize:10,fontWeight:700,color:r,
+                  background:r+"15",
+                  padding:"1px 5px",borderRadius:4,
+                  display:"flex",alignItems:"center",gap:2,
+                }}>
+                  {yukari?"▲":"▼"}{Math.abs(d).toFixed(2)}%
+                </span>
+              )}
+              {d==null && item.vd==null && item.v!=null && (
+                <span style={{fontSize:10,color:muted}}>EIA</span>
+              )}
+            </div>
+          );
+        })}
+
+        {/* Son güncelleme */}
+        {!p.yukleniyor && !p.hata && (
+          <div style={{marginLeft:"auto",flexShrink:0,display:"flex",alignItems:"center",gap:8,paddingLeft:14,borderLeft:`1px solid ${bord}`}}>
+            <span style={{fontSize:10,color:muted}}>⟳ {p.guncelleme}</span>
+            <button onClick={p.yenile} style={{fontSize:10,background:"transparent",border:`1px solid ${bord}`,color:muted,borderRadius:4,padding:"2px 6px",cursor:"pointer"}}>Yenile</button>
           </div>
         )}
       </div>
+      <style>{`@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}}`}</style>
     </div>
   );
 }
-
-// ─── SPARKLINE ────────────────────────────────────────────────────────────────
 function Sparkline({vals,renk,h=28,w=80}) {
-  const t=vals.filter(v=>v!=null&&v!==undefined);
+  const t=vals.filter(v=>v!=null);
   if(t.length<2) return <span style={{color:"#94a3b8",fontSize:11}}>—</span>;
   const mn=Math.min(...t),mx=Math.max(...t),rng=mx-mn||1;
   const step=w/(t.length-1);
   const pts=t.map((v,i)=>`${(i*step).toFixed(1)},${(h-((v-mn)/rng)*h).toFixed(1)}`).join(" ");
-  const lx=(t.length-1)*step,ly=h-((t[t.length-1]-mn)/rng)*h;
   return (
     <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} style={{display:"block"}}>
       <polyline points={pts} fill="none" stroke={renk} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round"/>
-      <circle cx={lx} cy={ly} r="2.5" fill={renk}/>
+      <circle cx={(t.length-1)*step} cy={h-((t[t.length-1]-mn)/rng)*h} r="2.5" fill={renk}/>
     </svg>
+  );
+}
+
+// ─── BAR GRAFİK (gelir karşılaştırma) ───────────────────────────────────────
+function BarChart({data,metrik,dk}) {
+  const max=Math.max(...data.map(d=>Math.abs(d.val||0)),1);
+  const c=dk?"#e2e8f0":"#1e293b";
+  const bg=dk?"#0f172a":"#f8fafc";
+  const bord=dk?"#334155":"#e2e8f0";
+  return (
+    <div style={{display:"flex",flexDirection:"column",gap:8}}>
+      {data.map(d=>(
+        <div key={d.id} style={{display:"flex",alignItems:"center",gap:10}}>
+          <div style={{width:130,fontSize:12,fontWeight:d.id==="thy"?700:400,color:c,flexShrink:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+            {d.id==="thy"?"⭐ ":""}{d.ad}
+          </div>
+          <div style={{flex:1,height:22,background:bg,borderRadius:4,overflow:"hidden",border:`1px solid ${bord}`}}>
+            {d.val!=null && (
+              <div style={{height:"100%",width:`${(Math.abs(d.val)/max)*100}%`,background:d.val<0?"#ef4444":d.renk,borderRadius:4,display:"flex",alignItems:"center",paddingLeft:6,transition:"width 0.6s ease"}}>
+                <span style={{fontSize:11,fontWeight:700,color:"#fff",whiteSpace:"nowrap"}}>{METR[metrik].fmt(d.val)}</span>
+              </div>
+            )}
+            {d.val==null && <span style={{fontSize:11,color:"#94a3b8",paddingLeft:6}}>—</span>}
+          </div>
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -320,17 +499,17 @@ function Sparkline({vals,renk,h=28,w=80}) {
 export default function App() {
   const [tema,setTema]=useState("acik");
   const [sekme,setSekme]=useState("haberler");
-  const [kategori,setKategori]=useState("tumu");
-  const [havayolu,setHavayolu]=useState("Tümü");
-  const [arama,setArama]=useState("");
-  const [analizliOnly,setAnalizliOnly]=useState(false);
-  const [finMetrik,setFinMetrik]=useState("gelir");
-  const [finYillar,setFinYillar]=useState(["2023","2024","2025"]);
-  const [secilenHY,setSecilenHY]=useState(FINANSAL_DATA.havayollari.map(h=>h.id));
-  const [finGoster,setFinGoster]=useState("yillik");
+  const [hKat,setHKat]=useState("tumu");
+  const [hHY,setHHY]=useState("Tümü");
+  const [hArama,setHArama]=useState("");
+  const [hAz,setHAz]=useState(false);
+  const [fMetrik,setFMetrik]=useState("g");
+  const [fYillar,setFYillar]=useState(["2023","2024","2025","Q1 2026"]);
+  const [fHY,setFHY]=useState(FIN.havayollari.map(h=>h.id));
+  const [fGor,setFGor]=useState("grafik");
   const [chatAcik,setChatAcik]=useState(false);
-  const [chatMsj,setChatMsj]=useState([{rol:"asistan",icerik:"Ticari takip portalına hoş geldiniz. Havacılık finansalları, GDS/NDC gelişmeleri veya sektör haberleri hakkında soru sorabilirsiniz."}]);
-  const [chatGiris,setChatGiris]=useState("");
+  const [chatM,setChatM]=useState([{r:"a",t:"Ticari Takip Portalı Asistanına hoş geldiniz. Havacılık finansalları, NDC/GDS veya gündem hakkında soru sorabilirsiniz."}]);
+  const [chatG,setChatG]=useState("");
   const [chatYuk,setChatYuk]=useState(false);
   const chatRef=useRef(null);
   const piyasa=usePiyasa();
@@ -338,73 +517,77 @@ export default function App() {
 
   const c={bg:dk?"#0f172a":"#f8fafc",card:dk?"#1e293b":"#ffffff",bord:dk?"#334155":"#e2e8f0",text:dk?"#e2e8f0":"#1e293b",sub:dk?"#94a3b8":"#475569",muted:"#94a3b8"};
 
-  useEffect(()=>{chatRef.current?.scrollIntoView({behavior:"smooth"});},[chatMsj]);
+  useEffect(()=>{ chatRef.current?.scrollIntoView({behavior:"smooth"}); },[chatM]);
 
-  async function chatGonder(soru) {
-    const m=soru||chatGiris.trim(); if(!m) return;
-    setChatGiris(""); setChatMsj(p=>[...p,{rol:"kullanici",icerik:m}]); setChatYuk(true);
-    const ctx=FINANSAL_DATA.havayollari.map(h=>`${h.ad} 2025: Gelir $${h.yillar["2025"]?.gelir}B, NetKâr $${h.yillar["2025"]?.net_kar}B, Yolcu ${h.yillar["2025"]?.yolcu}M`).join("\n");
-    const px=piyasa.usdtry?`USD/TRY=${piyasa.usdtry?.toFixed(2)}, EUR/TRY=${piyasa.eurtry?.toFixed(2)}`:"";;
+  async function chatGonder(s) {
+    const m=s||chatG.trim(); if(!m) return;
+    setChatG(""); setChatM(p=>[...p,{r:"u",t:m}]); setChatYuk(true);
+    const ctx=FIN.havayollari.slice(0,5).map(h=>`${h.ad} 2025: $${h.yil["2025"]?.g}B gelir, $${h.yil["2025"]?.nk}B net kâr, ${h.yil["2025"]?.p}M yolcu`).join("\n");
     try {
       const res=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
-        model:"claude-sonnet-4-20250514",max_tokens:600,
-        system:`Sen THY üst yönetimine sunum yapan havacılık analistisin. Kısa, öz Türkçe yanıt ver.\nFinansallar:\n${ctx}\nPiyasa: ${px}`,
+        model:"claude-sonnet-4-20250514",max_tokens:500,
+        system:`Sen THY üst yönetimine sunum yapan kıdemli havacılık analistisin. Kısa, öz, aksiyon odaklı Türkçe yanıt ver.\n${ctx}`,
         messages:[{role:"user",content:m}]
       })});
       const d=await res.json();
-      setChatMsj(p=>[...p,{rol:"asistan",icerik:d.content?.[0]?.text||"Yanıt alınamadı."}]);
-    } catch { setChatMsj(p=>[...p,{rol:"asistan",icerik:"Hata oluştu."}]); }
+      setChatM(p=>[...p,{r:"a",t:d.content?.[0]?.text||"Yanıt alınamadı."}]);
+    } catch { setChatM(p=>[...p,{r:"a",t:"Hata oluştu."}]); }
     finally { setChatYuk(false); }
   }
 
   const filtreli=HABERLER.filter(h=>{
-    if(kategori!=="tumu"&&h.kategori!==kategori) return false;
-    if(havayolu!=="Tümü"&&h.havayolu!==havayolu) return false;
-    if(analizliOnly&&!h.analizli) return false;
-    if(arama){const q=arama.toLowerCase();if(!h.baslik.toLowerCase().includes(q)&&!h.ozet.toLowerCase().includes(q)) return false;}
+    if(hKat!=="tumu"&&h.k!==hKat) return false;
+    if(hHY!=="Tümü"&&h.hy!==hHY) return false;
+    if(hAz&&!h.az) return false;
+    if(hArama){const q=hArama.toLowerCase();if(!h.b.toLowerCase().includes(q)&&!h.o.toLowerCase().includes(q)) return false;}
     return true;
   });
 
-  const metrикler={
-    gelir:       {label:"Toplam Gelir (USD B)",  fmt:v=>v!=null?`$${v.toFixed(1)}B`:"—",  renk:"#6366f1"},
-    net_kar:     {label:"Net Kâr (USD B)",       fmt:v=>v!=null?`$${v.toFixed(2)}B`:"—",  renk:"#10b981"},
-    isletme_kar: {label:"EBIT (USD B)",          fmt:v=>v!=null?`$${v.toFixed(2)}B`:"—",  renk:"#0ea5e9"},
-    isletme_marj:{label:"İşl. Marjı %",         fmt:v=>v!=null?`${v.toFixed(1)}%`:"—",   renk:"#f59e0b"},
-    net_marj:    {label:"Net Marj %",           fmt:v=>v!=null?`${v.toFixed(1)}%`:"—",   renk:"#8b5cf6"},
-    yolcu:       {label:"Yolcu (M)",            fmt:v=>v!=null?`${v.toFixed(1)}M`:"—",   renk:"#ef4444"},
-    doluluk:     {label:"Doluluk PLF %",        fmt:v=>v!=null?`${v.toFixed(1)}%`:"—",   renk:"#14b8a6"},
-    filo:        {label:"Filo (uçak)",          fmt:v=>v!=null?`${v}`:"—",               renk:"#f97316"},
-  };
+  const aktifHY=FIN.havayollari.filter(h=>fHY.includes(h.id));
+  const thyObj=FIN.havayollari.find(h=>h.id==="thy");
 
-  const aktifHY=FINANSAL_DATA.havayollari.filter(h=>secilenHY.includes(h.id));
-  const thyObj=FINANSAL_DATA.havayollari.find(h=>h.id==="thy");
-  const katRenk={gds_ndc:"#6366f1",one_order:"#0ea5e9",teknoloji:"#06b6d4",yeni_hat:"#10b981",ortaklik:"#8b5cf6",finansal:"#ef4444",duzenleyici:"#f59e0b",diger:"#94a3b8"};
+  const tumYillar=["2021","2022","2023","2024","2025","Q1 2026"];
+
+  const grafik_data = aktifHY.map(h=>({
+    id:h.id, ad:h.ad, renk:h.renk,
+    val: fYillar.length>0
+      ? (h.yil[fYillar[fYillar.length-1]]?.[fMetrik]??null)
+      : null
+  })).sort((a,b)=>(b.val||0)-(a.val||0));
 
   const s={
     app:{minHeight:"100vh",background:c.bg,color:c.text,fontFamily:"'Inter','Segoe UI',system-ui,sans-serif",fontSize:14},
     hdr:{background:c.card,borderBottom:`1px solid ${c.bord}`,padding:"0 20px",display:"flex",alignItems:"center",justifyContent:"space-between",height:50,position:"sticky",top:0,zIndex:100},
-    nav:{background:c.card,borderBottom:`1px solid ${c.bord}`,padding:"0 20px",display:"flex",gap:4,overflowX:"auto",position:"sticky",top:50,zIndex:99},
+    nav:{background:c.card,borderBottom:`1px solid ${c.bord}`,padding:"0 20px",display:"flex",gap:4,overflowX:"auto",position:"sticky",top:86,zIndex:99},
     tab:a=>({padding:"10px 14px",cursor:"pointer",border:"none",background:"transparent",color:a?"#6366f1":c.muted,fontWeight:a?600:400,fontSize:13,borderBottom:a?"2px solid #6366f1":"2px solid transparent",whiteSpace:"nowrap"}),
     main:{maxWidth:1300,margin:"0 auto",padding:"20px 16px"},
     card:{background:c.card,border:`1px solid ${c.bord}`,borderRadius:12,padding:20,marginBottom:14},
     btn:(a,r="#6366f1")=>({padding:"5px 12px",borderRadius:8,border:`1px solid ${a?r:c.bord}`,background:a?r:"transparent",color:a?"#fff":c.muted,fontSize:12,fontWeight:a?600:400,cursor:"pointer"}),
-    chip:a=>({padding:"5px 12px",borderRadius:20,border:`1px solid ${a?"#6366f1":c.bord}`,background:a?"#6366f1":"transparent",color:a?"#fff":c.muted,fontSize:12,fontWeight:a?600:400,cursor:"pointer"}),
+    chip:a=>({padding:"5px 12px",borderRadius:20,border:`1px solid ${a?"#6366f1":c.bord}`,background:a?"#6366f1":"transparent",color:a?"#fff":c.muted,fontSize:12,cursor:"pointer"}),
     th:{padding:"9px 12px",textAlign:"left",fontWeight:600,color:c.muted,fontSize:11,textTransform:"uppercase",letterSpacing:"0.4px",whiteSpace:"nowrap",borderBottom:`1px solid ${c.bord}`,background:dk?"#0f172a":"#f8fafc"},
     td:{padding:"10px 12px",borderBottom:`1px solid ${c.bord}50`,verticalAlign:"middle"},
     tag:r=>({fontSize:11,fontWeight:600,color:r,background:r+"18",padding:"2px 8px",borderRadius:6,whiteSpace:"nowrap"}),
     h2:{fontSize:16,fontWeight:700,marginBottom:14,letterSpacing:"-0.3px"},
-    info:{background:dk?"#1e293b90":"#f0f9ff",border:`1px solid ${dk?"#334155":"#bae6fd"}`,borderRadius:8,padding:"10px 14px",fontSize:12,color:dk?"#7dd3fc":"#0369a1",marginBottom:14},
   };
 
-  const TUMU_HY=["Tümü",...new Set(HABERLER.map(h=>h.havayolu))].filter(Boolean);
+  const [gKat,setGKat]=useState("turkiye"); // gündem aktif kategori
 
-  return (
-    <div style={s.app}>
-      <style>{`@keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}`}</style>
+  const GKAT_LIST=[
+    {id:"turkiye",  l:"🇹🇷 Türkiye",  r:"#ef4444"},
+    {id:"dunya",    l:"🌍 Dünya",      r:"#0ea5e9"},
+    {id:"ispanya",  l:"🇪🇸 İspanya",  r:"#f59e0b"},
+    {id:"spor",     l:"⚽ Spor",       r:"#10b981"},
+    {id:"smalltalk",l:"💡 Small Talk", r:"#8b5cf6"},
+  ];
+  const gKatRenk = Object.fromEntries(GKAT_LIST.map(k=>[k.id,k.r]));
+  const gFiltreli = GUNDEM.filter(g=>g.kat===gKat);
+  const gOnemli   = GUNDEM.filter(g=>g.onemli);
+
+  const TUMU_HY=["Tümü",...new Set(HABERLER.map(h=>h.hy))];
 
       {/* HEADER */}
       <header style={s.hdr}>
-        <div style={{display:"flex",alignItems:"center",gap:10,fontWeight:700,fontSize:15,letterSpacing:"-0.3px"}}>
+        <div style={{display:"flex",alignItems:"center",gap:10,fontWeight:700,fontSize:15}}>
           <div style={{width:28,height:28,borderRadius:8,background:"linear-gradient(135deg,#6366f1,#0ea5e9)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:14}}>✈️</div>
           <span>Ticari Takip Portalı</span>
           <span style={{fontSize:10,fontWeight:700,background:"#6366f1",color:"#fff",padding:"2px 7px",borderRadius:10}}>BETA</span>
@@ -412,16 +595,17 @@ export default function App() {
         <button style={s.btn(false)} onClick={()=>setTema(dk?"acik":"karanlik")}>{dk?"☀️":"🌙"}</button>
       </header>
 
-      {/* PİYASA BANTI */}
-      <PiyasaBanti p={piyasa} dk={dk}/>
+      {/* KUR ŞERİDİ — tüm sayfalarda görünür */}
+      <KurSeridi p={piyasa} dk={dk}/>
 
       {/* NAV */}
       <nav style={s.nav}>
         {[
-          {id:"haberler",    label:"📰 Haberler"},
-          {id:"gostergeler", label:"📈 Göstergeler & Raporlar"},
-          {id:"finansallar", label:"📊 Sektörel Finansallar"},
-        ].map(t=><button key={t.id} style={s.tab(sekme===t.id)} onClick={()=>setSekme(t.id)}>{t.label}</button>)}
+          {id:"haberler",   l:"📰 Haberler"},
+          {id:"gundem",     l:"🗞️ Gündelik Gündem"},
+          {id:"gostergeler",l:"📈 Göstergeler"},
+          {id:"finansallar",l:"📊 Sektörel Finansallar"},
+        ].map(t=><button key={t.id} style={s.tab(sekme===t.id)} onClick={()=>setSekme(t.id)}>{t.l}</button>)}
       </nav>
 
       <main style={s.main}>
@@ -430,20 +614,19 @@ export default function App() {
         {sekme==="haberler" && <>
           <div style={{...s.card,display:"flex",flexWrap:"wrap",gap:10,alignItems:"center",padding:"14px 16px"}}>
             <div style={{flex:"1 1 180px",position:"relative"}}>
-              <span style={{position:"absolute",left:10,top:"50%",transform:"translateY(-50%)",color:c.muted,fontSize:13}}>🔍</span>
-              <input style={{width:"100%",padding:"8px 12px 8px 32px",borderRadius:8,border:`1px solid ${c.bord}`,background:dk?"#0f172a":"#f8fafc",color:c.text,fontSize:13,outline:"none",boxSizing:"border-box"}} placeholder="Haber ara…" value={arama} onChange={e=>setArama(e.target.value)}/>
+              <span style={{position:"absolute",left:10,top:"50%",transform:"translateY(-50%)",color:c.muted}}>🔍</span>
+              <input style={{width:"100%",padding:"8px 12px 8px 32px",borderRadius:8,border:`1px solid ${c.bord}`,background:dk?"#0f172a":"#f8fafc",color:c.text,fontSize:13,outline:"none",boxSizing:"border-box"}} placeholder="Haber ara…" value={hArama} onChange={e=>setHArama(e.target.value)}/>
             </div>
-            <select style={{padding:"7px 10px",borderRadius:8,border:`1px solid ${c.bord}`,background:dk?"#0f172a":"#f8fafc",color:c.text,fontSize:13,outline:"none"}} value={havayolu} onChange={e=>setHavayolu(e.target.value)}>
+            <select style={{padding:"7px 10px",borderRadius:8,border:`1px solid ${c.bord}`,background:dk?"#0f172a":"#f8fafc",color:c.text,fontSize:13,outline:"none"}} value={hHY} onChange={e=>setHHY(e.target.value)}>
               {TUMU_HY.map(h=><option key={h}>{h}</option>)}
             </select>
             <label style={{display:"flex",alignItems:"center",gap:6,fontSize:13,cursor:"pointer"}}>
-              <input type="checkbox" checked={analizliOnly} onChange={e=>setAnalizliOnly(e.target.checked)} style={{accentColor:"#10b981"}}/>Analizli
+              <input type="checkbox" checked={hAz} onChange={e=>setHAz(e.target.checked)} style={{accentColor:"#10b981"}}/>Analizli
             </label>
-            {(arama||havayolu!=="Tümü"||kategori!=="tumu"||analizliOnly)&&
-              <button style={s.btn(false)} onClick={()=>{setArama("");setHavayolu("Tümü");setKategori("tumu");setAnalizliOnly(false);}}>✕</button>}
+            {(hArama||hHY!=="Tümü"||hKat!=="tumu"||hAz)&&<button style={s.btn(false)} onClick={()=>{setHArama("");setHHY("Tümü");setHKat("tumu");setHAz(false);}}>✕</button>}
           </div>
           <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:16}}>
-            {KATEGORILER.map(k=><button key={k.id} style={s.chip(kategori===k.id)} onClick={()=>setKategori(k.id)}>{k.label}</button>)}
+            {KKATEGORILER.map(k=><button key={k.id} style={s.chip(hKat===k.id)} onClick={()=>setHKat(k.id)}>{k.l}</button>)}
           </div>
           {filtreli.length===0
             ? <div style={{textAlign:"center",padding:"60px 20px",color:c.muted}}><div style={{fontSize:32,marginBottom:8}}>🔍</div>Sonuç bulunamadı</div>
@@ -451,42 +634,128 @@ export default function App() {
                 {filtreli.map(h=>(
                   <div key={h.id} style={s.card}>
                     <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
-                      <span style={s.tag(katRenk[h.kategori]||"#94a3b8")}>{KATEGORILER.find(k=>k.id===h.kategori)?.label}</span>
-                      <span style={{fontSize:11,color:c.muted}}>{new Date(h.tarih).toLocaleDateString("tr-TR",{day:"numeric",month:"long"})}</span>
+                      <span style={s.tag(KRENK[h.k]||"#94a3b8")}>{KKATEGORILER.find(k=>k.id===h.k)?.l||h.k}</span>
+                      <span style={{fontSize:11,color:c.muted}}>{new Date(h.t).toLocaleDateString("tr-TR",{day:"numeric",month:"long"})}</span>
                     </div>
-                    <div style={{fontWeight:600,fontSize:14,lineHeight:1.45,marginBottom:7}}>{h.baslik}</div>
-                    <div style={{fontSize:12,lineHeight:1.6,color:c.sub,marginBottom:12}}>{h.ozet}</div>
+                    <div style={{fontWeight:600,fontSize:14,lineHeight:1.45,marginBottom:7}}>{h.b}</div>
+                    <div style={{fontSize:12,lineHeight:1.6,color:c.sub,marginBottom:12}}>{h.o}</div>
                     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:4}}>
                       <div style={{display:"flex",flexWrap:"wrap",gap:4}}>
-                        {h.kaynaklar.map(k=><a key={k.ad} href={k.url} target="_blank" rel="noopener" style={{fontSize:11,color:"#6366f1",textDecoration:"none",background:"#6366f115",padding:"2px 8px",borderRadius:6}}>{k.ad}</a>)}
+                        {h.s.map(k=>(
+                          <a key={k.a} href={k.u} target="_blank" rel="noopener" style={{fontSize:11,color:"#6366f1",textDecoration:"none",background:"#6366f115",padding:"2px 8px",borderRadius:6}}>{k.a} ↗</a>
+                        ))}
                       </div>
-                      {h.analizli&&<span style={s.tag("#10b981")}>✦ Analizli</span>}
+                      {h.az&&<span style={s.tag("#10b981")}>✦ Analizli</span>}
                     </div>
                   </div>
                 ))}
               </div>
           }
-          <div style={{marginTop:14,padding:"10px 14px",background:dk?"#1e293b":"#f1f5f9",borderRadius:8,display:"flex",gap:20,fontSize:12,color:c.muted,flexWrap:"wrap"}}>
-            <span><b style={{color:c.text}}>{filtreli.length}</b> haber</span>
-            <span><b style={{color:"#10b981"}}>{filtreli.filter(h=>h.analizli).length}</b> analizli</span>
-            <span><b style={{color:"#6366f1"}}>{new Set(filtreli.map(h=>h.kategori)).size}</b> kategori</span>
-          </div>
         </>}
 
-        {/* ══ GÖSTERGELER & RAPORLAR ══ */}
+        {/* ══ GÜNDELİK GÜNDEM ══ */}
+        {sekme==="gundem" && <>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8}}>
+            <div style={s.h2}>🗞️ Gündelik Gündem — {new Date().toLocaleDateString("tr-TR",{day:"numeric",month:"long",year:"numeric"})}</div>
+            <div style={{fontSize:12,color:c.muted,marginBottom:14}}>Türkiye · Dünya · İspanya · Spor · Small Talk</div>
+          </div>
+
+          {/* KATEGORİ SEÇİCİ */}
+          <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:18}}>
+            {GKAT_LIST.map(k=>(
+              <button key={k.id} style={{
+                padding:"8px 16px",borderRadius:20,cursor:"pointer",
+                border:`1px solid ${gKat===k.id?k.r:c.bord}`,
+                background:gKat===k.id?k.r:"transparent",
+                color:gKat===k.id?"#fff":c.muted,
+                fontSize:13,fontWeight:gKat===k.id?700:400,
+              }} onClick={()=>setGKat(k.id)}>{k.l}</button>
+            )}
+          </div>
+
+          {/* ÖNE ÇIKANLAR — her kategoride görünür */}
+          {gOnemli.length>0 && gKat==="turkiye" && (
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:12,marginBottom:20}}>
+              {gOnemli.map(g=>(
+                <a key={g.id} href={g.url} target="_blank" rel="noopener" style={{textDecoration:"none"}}>
+                  <div style={{...s.card,borderLeft:`4px solid ${gKatRenk[g.kat]||"#ef4444"}`,cursor:"pointer"}}>
+                    <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
+                      <span style={s.tag(gKatRenk[g.kat]||"#ef4444")}>{GKAT_LIST.find(k=>k.id===g.kat)?.l} · ÖNEMLI</span>
+                      <span style={{fontSize:11,color:c.muted}}>{g.tarih}</span>
+                    </div>
+                    <div style={{fontWeight:700,fontSize:14,lineHeight:1.4,marginBottom:6,color:c.text}}>{g.b}</div>
+                    <div style={{fontSize:12,lineHeight:1.55,color:c.sub}}>{g.o}</div>
+                  </div>
+                </a>
+              ))}
+            </div>
+          )}
+
+          {/* SPOR sekmesinde Dünya Kupası fikstürü */}
+          {gKat==="spor" && (
+            <div style={{...s.card,marginBottom:14}}>
+              <div style={{fontWeight:700,fontSize:15,marginBottom:12}}>🏆 Türkiye — 2026 Dünya Kupası D Grubu</div>
+              <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                {[
+                  {t:"14 Haz · 07:00",m:"🇦🇺 Avustralya – Türkiye 🇹🇷",s:"BC Place, Vancouver",durum:"YAKLAŞIYOR",r:"#ef4444",y:"https://www.milliyet.com.tr/galeri/milli-mac-ne-zaman-avustralya-turkiye-2026-fifa-dunya-kupasi-maci-ne-zaman-saat-kacta-hangi-kanalda-a-milli-takim-grupta-ilk-7603344"},
+                  {t:"20 Haz · 06:00",m:"🇹🇷 Türkiye – Paraguay 🇵🇾",s:"Bay Area Stadium, San Francisco",durum:"GRUPTA",r:"#6366f1",y:"https://spor.haber7.com/dunya-kupasi/haber/3634351"},
+                  {t:"26 Haz · 05:00",m:"🇹🇷 Türkiye – ABD 🇺🇸",s:"Los Angeles Stadium",durum:"GRUPTA",r:"#6366f1",y:"https://spor.haber7.com/dunya-kupasi/haber/3634351"},
+                ].map((mac,i)=>(
+                  <a key={i} href={mac.y} target="_blank" rel="noopener" style={{textDecoration:"none"}}>
+                    <div style={{background:dk?"#0f172a":"#f8fafc",borderRadius:10,padding:"11px 14px",display:"flex",flexWrap:"wrap",gap:10,alignItems:"center",border:`1px solid ${i===0?mac.r:c.bord}`}}>
+                      <span style={{...s.tag(mac.r),fontSize:10}}>{mac.durum}</span>
+                      <span style={{fontSize:11,color:c.muted,minWidth:100}}>{mac.t}</span>
+                      <span style={{fontWeight:700,fontSize:13,color:c.text,flex:1}}>{mac.m}</span>
+                      <span style={{fontSize:11,color:c.muted}}>{mac.s}</span>
+                      <span style={{...s.tag("#10b981"),fontSize:10}}>TRT 1</span>
+                    </div>
+                  </a>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* KATEGORİ HABERLERİ */}
+          {gFiltreli.length===0
+            ? <div style={{textAlign:"center",padding:"40px 20px",color:c.muted}}>Bu kategoride haber yok</div>
+            : <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))",gap:12}}>
+                {gFiltreli.map(g=>(
+                  <a key={g.id} href={g.url} target="_blank" rel="noopener" style={{textDecoration:"none"}}>
+                    <div style={{...s.card,cursor:"pointer",borderLeft:g.onemli?`3px solid ${gKatRenk[g.kat]||"#6366f1"}`:"none"}}>
+                      <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
+                        <div style={{display:"flex",alignItems:"center",gap:6}}>
+                          <span style={s.tag(gKatRenk[g.kat]||"#6366f1")}>{g.etiket}</span>
+                          {g.onemli && <span style={{fontSize:9,fontWeight:700,color:"#ef4444",background:"#ef444415",padding:"1px 5px",borderRadius:4}}>ÖNE ÇIKAN</span>}
+                        </div>
+                        <span style={{fontSize:11,color:c.muted}}>{g.tarih}</span>
+                      </div>
+                      <div style={{fontWeight:g.onemli?700:600,fontSize:13,lineHeight:1.45,marginBottom:6,color:c.text}}>{g.b}</div>
+                      <div style={{fontSize:12,lineHeight:1.55,color:c.sub}}>{g.o}</div>
+                    </div>
+                  </a>
+                ))}
+              </div>
+          }
+        </>}
+
+        {/* ══ GÖSTERGELER ══ */}
         {sekme==="gostergeler" && <>
           <div style={s.h2}>IATA Pazar Göstergeleri</div>
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:12,marginBottom:20}}>
-            {ENDEKSLER.map(e=>(
-              <div key={e.label} style={{background:c.card,border:`1px solid ${c.bord}`,borderLeft:`3px solid ${e.renk}`,borderRadius:10,padding:"14px 16px"}}>
-                <div style={{fontSize:26,fontWeight:800,color:e.renk,letterSpacing:"-1px",lineHeight:1,marginBottom:4}}>{e.deger}</div>
-                <div style={{fontWeight:600,fontSize:13,marginBottom:2}}>{e.label}</div>
-                <div style={{fontSize:11,color:c.muted,marginBottom:2}}>{e.birim}</div>
-                <div style={{fontSize:11,color:c.muted}}>{e.aciklama}</div>
+            {[
+              {l:"IATA Küresel RPK",d:"+9,2%",b:"Mayıs 2026 · yıllık",r:"#10b981",a:"Revenue Passenger Km"},
+              {l:"Küresel ASK",d:"+7,4%",b:"Mayıs 2026 · yıllık",r:"#6366f1",a:"Available Seat Km"},
+              {l:"Küresel Doluluk",d:"83,7%",b:"PLF · Mayıs 2026",r:"#f59e0b",a:"Passenger Load Factor"},
+              {l:"NDC Penetrasyon",d:"~34%",b:"Tahmin · 2026",r:"#8b5cf6",a:"Toplam bilet satışlarında"},
+            ].map(e=>(
+              <div key={e.l} style={{background:c.card,border:`1px solid ${c.bord}`,borderLeft:`3px solid ${e.r}`,borderRadius:10,padding:"14px 16px"}}>
+                <div style={{fontSize:26,fontWeight:800,color:e.r,letterSpacing:"-1px",lineHeight:1,marginBottom:4}}>{e.d}</div>
+                <div style={{fontWeight:600,fontSize:13,marginBottom:2}}>{e.l}</div>
+                <div style={{fontSize:11,color:c.muted,marginBottom:2}}>{e.b}</div>
+                <div style={{fontSize:11,color:c.muted}}>{e.a}</div>
               </div>
             ))}
           </div>
-
           <div style={s.card}>
             <div style={{fontWeight:600,marginBottom:14}}>Bölgesel RPK Büyümesi — Mayıs 2026</div>
             {[{b:"Asya-Pasifik",v:14.1,r:"#0ea5e9"},{b:"Orta Doğu",v:11.3,r:"#8b5cf6"},{b:"Latin Amerika",v:9.8,r:"#10b981"},{b:"Kuzey Amerika",v:8.1,r:"#f59e0b"},{b:"Avrupa",v:7.4,r:"#6366f1"},{b:"Afrika",v:6.9,r:"#ef4444"}].map(x=>(
@@ -500,127 +769,167 @@ export default function App() {
                 </div>
               </div>
             ))}
-            <div style={{fontSize:11,color:c.muted,marginTop:8}}>Kaynak: IATA Air Passenger Market Analysis · Mayıs 2026</div>
+            <div style={{fontSize:11,color:c.muted,marginTop:8}}>Kaynak: <a href="https://www.iata.org/en/publications/economics/air-passenger-monthly-analysis/" target="_blank" rel="noopener" style={{color:"#6366f1"}}>IATA Air Passenger Market Analysis ↗</a> · Mayıs 2026</div>
           </div>
-
           <div style={s.h2}>Yayınlar & Raporlar</div>
-          {RAPORLAR.map(r=>(
-            <div key={r.id} style={{...s.card,display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:16}}>
+          {[
+            {b:"IATA Aylık Yolcu Analizi — Mayıs 2026",t:"Haziran 2026",o:"Küresel RPK büyümesi beklentileri aştı. Asya-Pasifik %14,1 ile öncü.",et:"IATA",u:"https://www.iata.org/en/publications/economics/air-passenger-monthly-analysis/"},
+            {b:"Amadeus Dağıtım Endeksi Q1 2026",t:"Nisan 2026",o:"GDS NDC rezervasyonları %42 arttı. NDC içerik büyümesi ivmelendi.",et:"Amadeus",u:"https://ir.amadeus.com/en/financial-news-and-events/press-releases"},
+            {b:"IATA ONE Order Durum Raporu H1 2026",t:"Haziran 2026",o:"60 havayolu ONE Order sertifikasyonunu tamamladı. 2027 hedefi 120.",et:"IATA",u:"https://www.iata.org/en/programs/ops-infra/one-order/"},
+            {b:"Phocuswright: Havacılık Dağıtım Panosu 2026",t:"Mayıs 2026",o:"Havayollarının doğrudan gelir payı %51'i aştı.",et:"Phocuswright",u:"https://www.phocuswright.com/Research/Travel-Technology"},
+            {b:"Skift: NDC'nin 5 Yılı 2021–2026",t:"Mayıs 2026",o:"NDC'nin dağıtım yapısını nasıl değiştirdiğinin analizi.",et:"Skift",u:"https://research.skift.com"},
+          ].map((r,i)=>(
+            <div key={i} style={{...s.card,display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:16}}>
               <div>
-                <div style={{display:"flex",gap:8,marginBottom:6}}>
-                  <span style={s.tag("#6366f1")}>{r.etiket}</span>
-                  <span style={{fontSize:11,color:c.muted}}>{r.tarih}</span>
-                </div>
-                <div style={{fontWeight:600,fontSize:14,marginBottom:6}}>{r.baslik}</div>
-                <div style={{fontSize:13,color:c.sub,lineHeight:1.55}}>{r.ozet}</div>
+                <div style={{display:"flex",gap:8,marginBottom:6}}><span style={s.tag("#6366f1")}>{r.et}</span><span style={{fontSize:11,color:c.muted}}>{r.t}</span></div>
+                <div style={{fontWeight:600,fontSize:14,marginBottom:6}}>{r.b}</div>
+                <div style={{fontSize:13,color:c.sub}}>{r.o}</div>
               </div>
-              <a href={r.url} target="_blank" rel="noopener" style={{padding:"7px 14px",background:"#6366f1",color:"#fff",borderRadius:8,fontSize:12,fontWeight:600,textDecoration:"none",flexShrink:0}}>Aç →</a>
+              <a href={r.u} target="_blank" rel="noopener" style={{padding:"7px 14px",background:"#6366f1",color:"#fff",borderRadius:8,fontSize:12,fontWeight:600,textDecoration:"none",flexShrink:0}}>Aç ↗</a>
             </div>
           ))}
         </>}
 
         {/* ══ SEKTÖREL FİNANSALLAR ══ */}
         {sekme==="finansallar" && <>
-          <div style={s.info}>
-            ℹ️ Veriler resmi yıllık raporlar ve IR duyurularından derlenir. USD cinsinden gösterilir. Çeyreklik veriler mevcut havayolları için ayrıca listelenir. Piyasa verileri 5 dakikada bir güncellenir.
-          </div>
-
           {/* THY SNAPSHOT */}
-          <div style={{...s.card,borderLeft:"4px solid #C8102E",marginBottom:14}}>
+          <div style={{...s.card,borderLeft:"4px solid #C8102E"}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:14,flexWrap:"wrap",gap:8}}>
               <div>
                 <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
-                  <span style={{fontSize:15,fontWeight:800,color:"#C8102E"}}>⭐ Turkish Airlines — 2025</span>
+                  <span style={{fontSize:15,fontWeight:800,color:"#C8102E"}}>⭐ Turkish Airlines — Son Dönem</span>
                   <span style={s.tag("#C8102E")}>THYAO · BIST</span>
                 </div>
-                <div style={{fontSize:12,color:c.muted}}>{thyObj.aciklama}</div>
+                <div style={{fontSize:12,color:c.muted}}>İstanbul merkezli, 130+ ülkeye uçuş · Q1 2026 sonuçları açıklandı</div>
               </div>
-              <a href={thyObj.ir_url} target="_blank" rel="noopener" style={{fontSize:12,color:"#6366f1",textDecoration:"none"}}>IR →</a>
+              <a href={thyObj.ir} target="_blank" rel="noopener" style={{fontSize:12,color:"#6366f1",textDecoration:"none"}}>IR Sayfası ↗</a>
             </div>
-            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(140px,1fr))",gap:10}}>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(130px,1fr))",gap:10}}>
               {[
-                {label:"Toplam Gelir",val:`$${thyObj.yillar["2025"].gelir}B`,renk:"#6366f1"},
-                {label:"Net Kâr",    val:`$${thyObj.yillar["2025"].net_kar}B`,renk:"#10b981"},
-                {label:"İşl. Kârı", val:`$${thyObj.yillar["2025"].isletme_kar}B`,renk:"#0ea5e9"},
-                {label:"İşl. Marjı",val:`${thyObj.yillar["2025"].isletme_marj}%`,renk:"#f59e0b"},
-                {label:"Yolcu",     val:`${thyObj.yillar["2025"].yolcu}M`,renk:"#ef4444"},
-                {label:"Doluluk",   val:`${thyObj.yillar["2025"].doluluk}%`,renk:"#14b8a6"},
-                {label:"Filo",      val:`${thyObj.yillar["2025"].filo}`,renk:"#f97316"},
-                {label:"ASK Büyüme",val:`+${thyObj.yillar["2025"].ask_buyume}%`,renk:"#8b5cf6"},
-              ].map(({label,val,renk})=>(
-                <div key={label} style={{background:dk?"#0f172a":"#f8fafc",borderRadius:8,padding:"10px 12px"}}>
-                  <div style={{fontSize:11,color:c.muted,marginBottom:3}}>{label}</div>
-                  <div style={{fontSize:18,fontWeight:800,color:renk,letterSpacing:"-0.5px"}}>{val}</div>
+                {l:"2025 Gelir",  v:`$${thyObj.yil["2025"].g}B`,      r:"#6366f1"},
+                {l:"2025 Net Kâr",v:`$${thyObj.yil["2025"].nk}B`,     r:"#10b981"},
+                {l:"Q1 2026 Gelir",v:"$5,9B",                         r:"#0ea5e9",yeni:true},
+                {l:"Q1 2026 Net Kâr",v:"$226M ↑",                     r:"#10b981",yeni:true},
+                {l:"Q1 2026 Yolcu",v:"21,3M (+12,7%)",                r:"#ef4444",yeni:true},
+                {l:"2025 Doluluk",v:`${thyObj.yil["2025"].lf}%`,      r:"#14b8a6"},
+                {l:"2025 Filo",   v:`${thyObj.yil["2025"].f} uçak`,   r:"#f97316"},
+                {l:"2025 İşl.Marj",v:`${thyObj.yil["2025"].im}%`,     r:"#f59e0b"},
+              ].map(({l,v,r,yeni})=>(
+                <div key={l} style={{background:dk?"#0f172a":"#f8fafc",borderRadius:8,padding:"10px 12px",border:yeni?`1px solid ${r}40`:"none"}}>
+                  <div style={{fontSize:10,color:c.muted,marginBottom:3,display:"flex",alignItems:"center",gap:4}}>
+                    {yeni&&<span style={{fontSize:9,fontWeight:700,color:r,background:r+"18",padding:"1px 5px",borderRadius:4}}>YENİ</span>}{l}
+                  </div>
+                  <div style={{fontSize:17,fontWeight:800,color:r,letterSpacing:"-0.5px"}}>{v}</div>
                 </div>
               ))}
             </div>
+            <div style={{fontSize:11,color:c.muted,marginTop:10}}>
+              Q1 2026 kaynağı: <a href="https://www.rustourismnews.com/2026/05/06/turkish-airlines-returns-to-strong-profit-despite-rising-operating-costs/" target="_blank" rel="noopener" style={{color:"#6366f1"}}>rustourismnews.com ↗</a> · 2025: THYAO Yıllık Rapor
+            </div>
           </div>
 
-          {/* YIL/ÇEYREK SEÇİMİ */}
+          {/* KONTROLLER */}
           <div style={{...s.card,padding:"14px 16px"}}>
             <div style={{display:"flex",flexWrap:"wrap",gap:14,alignItems:"flex-start"}}>
               <div>
                 <div style={{fontSize:11,fontWeight:600,color:c.muted,marginBottom:6,textTransform:"uppercase"}}>Görünüm</div>
                 <div style={{display:"flex",gap:5}}>
-                  <button style={s.btn(finGoster==="yillik")} onClick={()=>setFinGoster("yillik")}>Yıllık</button>
-                  <button style={s.btn(finGoster==="ceyrek")} onClick={()=>setFinGoster("ceyrek")}>Çeyreklik</button>
+                  <button style={s.btn(fGor==="grafik")} onClick={()=>setFGor("grafik")}>📊 Grafik</button>
+                  <button style={s.btn(fGor==="tablo")} onClick={()=>setFGor("tablo")}>📋 Tablo</button>
+                  <button style={s.btn(fGor==="ceyrek")} onClick={()=>setFGor("ceyrek")}>📅 Çeyreklik</button>
                 </div>
               </div>
-              {finGoster==="yillik" && <div>
-                <div style={{fontSize:11,fontWeight:600,color:c.muted,marginBottom:6,textTransform:"uppercase"}}>Yıllar</div>
+              <div>
+                <div style={{fontSize:11,fontWeight:600,color:c.muted,marginBottom:6,textTransform:"uppercase"}}>Metrik</div>
                 <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
-                  {["2021","2022","2023","2024","2025"].map(y=>(
-                    <button key={y} style={s.btn(finYillar.includes(y))} onClick={()=>setFinYillar(p=>p.includes(y)?p.filter(x=>x!==y):[...p,y].sort())}>{y}</button>
+                  {Object.entries(METR).map(([k,v])=>(
+                    <button key={k} style={s.btn(fMetrik===k,v.renk)} onClick={()=>setFMetrik(k)}>{v.l.split(" (")[0]}</button>
+                  ))}
+                </div>
+              </div>
+              {fGor!=="ceyrek" && <div>
+                <div style={{fontSize:11,fontWeight:600,color:c.muted,marginBottom:6,textTransform:"uppercase"}}>Dönem</div>
+                <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
+                  {tumYillar.map(y=>(
+                    <button key={y} style={{...s.btn(fYillar.includes(y)),fontSize:11}} onClick={()=>setFYillar(p=>p.includes(y)?p.filter(x=>x!==y):[...p,y])}>
+                      {y==="Q1 2026"?<span style={{color:fYillar.includes(y)?"#fff":"#10b981",fontWeight:700}}>{y}★</span>:y}
+                    </button>
                   ))}
                 </div>
               </div>}
               <div>
-                <div style={{fontSize:11,fontWeight:600,color:c.muted,marginBottom:6,textTransform:"uppercase"}}>Metrik</div>
-                <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
-                  {Object.entries(metrикler).map(([k,v])=>(
-                    <button key={k} style={s.btn(finMetrik===k,v.renk)} onClick={()=>setFinMetrik(k)}>{v.label.split("(")[0].trim()}</button>
-                  ))}
-                </div>
-              </div>
-              <div>
                 <div style={{fontSize:11,fontWeight:600,color:c.muted,marginBottom:6,textTransform:"uppercase"}}>Havayolları</div>
                 <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
-                  {FINANSAL_DATA.havayollari.map(h=>(
-                    <button key={h.id} style={s.btn(secilenHY.includes(h.id),h.renk)} onClick={()=>setSecilenHY(p=>p.includes(h.id)?p.filter(x=>x!==h.id):[...p,h.id])}>
+                  {FIN.havayollari.map(h=>(
+                    <button key={h.id} style={s.btn(fHY.includes(h.id),h.renk)} onClick={()=>setFHY(p=>p.includes(h.id)?p.filter(x=>x!==h.id):[...p,h.id])}>
                       {h.id==="thy"?"⭐ ":""}{h.ad}
                     </button>
                   ))}
-                  <button style={s.btn(false)} onClick={()=>setSecilenHY(FINANSAL_DATA.havayollari.map(h=>h.id))}>Tümü</button>
+                  <button style={s.btn(false)} onClick={()=>setFHY(FIN.havayollari.map(h=>h.id))}>Tümü</button>
                 </div>
               </div>
             </div>
           </div>
 
-          {/* YILLIK TABLO */}
-          {finGoster==="yillik" && <div style={s.card}>
+          {/* GRAFİK GÖRÜNÜM */}
+          {fGor==="grafik" && (
+            <div style={s.card}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,flexWrap:"wrap",gap:8}}>
+                <div>
+                  <div style={s.h2}>{METR[fMetrik].l}</div>
+                  <div style={{fontSize:12,color:c.muted}}>Dönem: {fYillar[fYillar.length-1]||"—"}</div>
+                </div>
+              </div>
+              <BarChart data={grafik_data} metrik={fMetrik} dk={dk}/>
+              {fYillar.length>1 && (
+                <div style={{marginTop:24,paddingTop:20,borderTop:`1px solid ${c.bord}`}}>
+                  <div style={{fontSize:13,fontWeight:600,marginBottom:12,color:c.muted}}>TREND — {aktifHY.slice(0,4).map(h=>h.ad).join(" · ")}</div>
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:12}}>
+                    {aktifHY.slice(0,6).map(h=>{
+                      const trendV=fYillar.map(y=>h.yil[y]?.[fMetrik]??null);
+                      const son=trendV.filter(v=>v!=null).slice(-1)[0];
+                      const ilk=trendV.filter(v=>v!=null)[0];
+                      const deg=son&&ilk&&ilk!==0?((son-ilk)/Math.abs(ilk))*100:null;
+                      return (
+                        <div key={h.id} style={{background:dk?"#0f172a":"#f8fafc",borderRadius:8,padding:"12px 14px"}}>
+                          <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}>
+                            <span style={{fontSize:12,fontWeight:h.id==="thy"?700:400}}>{h.id==="thy"?"⭐ ":""}{h.ad}</span>
+                            {deg!=null&&<span style={{fontSize:11,fontWeight:600,color:deg>=0?"#10b981":"#ef4444"}}>{deg>=0?"+":""}{deg.toFixed(1)}%</span>}
+                          </div>
+                          <Sparkline vals={trendV} renk={h.renk}/>
+                          <div style={{fontSize:11,color:c.muted,marginTop:4}}>{METR[fMetrik].fmt(son)}</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* TABLO GÖRÜNÜM */}
+          {fGor==="tablo" && <div style={s.card}>
             <div style={{marginBottom:12}}>
-              <div style={s.h2}>{metrикler[finMetrik].label}</div>
-              <div style={{fontSize:12,color:c.muted}}>{finYillar.join(", ")} · USD</div>
+              <div style={s.h2}>{METR[fMetrik].l}</div>
+              <div style={{fontSize:12,color:c.muted}}>Seçili dönemler · USD</div>
             </div>
             <div style={{overflowX:"auto"}}>
               <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
                 <thead>
                   <tr>
                     <th style={s.th}>Havayolu</th>
-                    {finYillar.map(y=><th key={y} style={{...s.th,textAlign:"right"}}>{y}</th>)}
-                    <th style={{...s.th,textAlign:"right"}}>YoY '25</th>
+                    {fYillar.map(y=><th key={y} style={{...s.th,textAlign:"right"}}>{y}</th>)}
+                    <th style={{...s.th,textAlign:"right"}}>Δ Son</th>
                     <th style={{...s.th,textAlign:"center"}}>Trend</th>
-                    <th style={{...s.th}}>Rapor</th>
+                    <th style={s.th}>IR</th>
                   </tr>
                 </thead>
                 <tbody>
                   {aktifHY.map((h,i)=>{
-                    const vals=finYillar.map(y=>h.yillar[y]?.[finMetrik]??null);
-                    const s25=h.yillar["2025"]?.[finMetrik]??null;
-                    const s24=h.yillar["2024"]?.[finMetrik]??null;
-                    const yoy=s25!=null&&s24!=null&&s24!==0?((s25-s24)/Math.abs(s24))*100:null;
-                    const olumlu=yoy!=null&&yoy>0;
-                    const trendV=["2021","2022","2023","2024","2025"].map(y=>h.yillar[y]?.[finMetrik]??null);
+                    const vals=fYillar.map(y=>h.yil[y]?.[fMetrik]??null);
+                    const sonlar=vals.filter(v=>v!=null);
+                    const yoy=sonlar.length>=2?((sonlar[sonlar.length-1]-sonlar[sonlar.length-2])/Math.abs(sonlar[sonlar.length-2]||1))*100:null;
+                    const trendV=tumYillar.map(y=>h.yil[y]?.[fMetrik]??null);
                     const isTHY=h.id==="thy";
                     return (
                       <tr key={h.id} style={{background:i%2===0?"transparent":dk?"#ffffff06":"#f8fafc"}}>
@@ -628,23 +937,21 @@ export default function App() {
                           <div style={{display:"flex",alignItems:"center",gap:8}}>
                             <div style={{width:3,height:32,borderRadius:2,background:h.renk,flexShrink:0}}/>
                             <div>
-                              <div style={{fontWeight:isTHY?800:500,display:"flex",alignItems:"center",gap:4}}>
-                                {isTHY&&"⭐ "}{h.ad}
-                              </div>
-                              <div style={{fontSize:10,color:c.muted}}>{h.kod} · {h.rapor_siklik}</div>
+                              <div style={{fontWeight:isTHY?800:500}}>{isTHY?"⭐ ":""}{h.ad}</div>
+                              <div style={{fontSize:10,color:c.muted}}>{h.kod} · {h.siklik}</div>
                             </div>
                           </div>
                         </td>
                         {vals.map((v,vi)=>(
-                          <td key={vi} style={{...s.td,textAlign:"right",fontVariantNumeric:"tabular-nums",color:v!=null?c.text:c.muted}}>
-                            {metrикler[finMetrik].fmt(v)}
+                          <td key={vi} style={{...s.td,textAlign:"right",color:v!=null?c.text:c.muted,fontVariantNumeric:"tabular-nums"}}>
+                            {METR[fMetrik].fmt(v)}
                           </td>
                         ))}
-                        <td style={{...s.td,textAlign:"right",fontWeight:600,color:yoy==null?c.muted:olumlu?"#10b981":"#ef4444"}}>
+                        <td style={{...s.td,textAlign:"right",fontWeight:600,color:yoy==null?c.muted:yoy>0?"#10b981":"#ef4444"}}>
                           {yoy==null?"—":`${yoy>0?"+":""}${yoy.toFixed(1)}%`}
                         </td>
                         <td style={{...s.td,textAlign:"center"}}><Sparkline vals={trendV} renk={h.renk}/></td>
-                        <td style={s.td}><a href={h.ir_url} target="_blank" rel="noopener" style={{fontSize:11,color:"#6366f1",textDecoration:"none"}}>IR →</a></td>
+                        <td style={s.td}><a href={h.ir} target="_blank" rel="noopener" style={{fontSize:11,color:"#6366f1",textDecoration:"none"}}>IR ↗</a></td>
                       </tr>
                     );
                   })}
@@ -653,11 +960,11 @@ export default function App() {
             </div>
           </div>}
 
-          {/* ÇEYREKLIK TABLO */}
-          {finGoster==="ceyrek" && <div style={s.card}>
+          {/* ÇEYREK GÖRÜNÜM */}
+          {fGor==="ceyrek" && <div style={s.card}>
             <div style={{marginBottom:12}}>
-              <div style={s.h2}>Çeyreklik Sonuçlar</div>
-              <div style={{fontSize:12,color:c.muted}}>Son 3 çeyrek · Çeyreklik rapor yayınlayan havayolları</div>
+              <div style={s.h2}>Çeyreklik & Yarıyıl Sonuçlar</div>
+              <div style={{fontSize:12,color:c.muted}}>Rapor yayınlayan havayolları · En güncel veriler</div>
             </div>
             <div style={{overflowX:"auto"}}>
               <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
@@ -669,32 +976,43 @@ export default function App() {
                     <th style={{...s.th,textAlign:"right"}}>Net Kâr</th>
                     <th style={{...s.th,textAlign:"right"}}>Yolcu</th>
                     <th style={{...s.th,textAlign:"right"}}>Doluluk</th>
+                    <th style={s.th}>Kaynak</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {aktifHY.filter(h=>h.ceyrekler).flatMap((h,hi)=>
-                    Object.entries(h.ceyrekler).map(([donem,v],di)=>(
-                      <tr key={h.id+donem} style={{background:(hi+di)%2===0?"transparent":dk?"#ffffff06":"#f8fafc"}}>
-                        {di===0 ? (
-                          <td style={{...s.td,fontWeight:600}} rowSpan={Object.keys(h.ceyrekler).length}>
+                  {aktifHY.filter(h=>h.q&&h.q.length>0).flatMap((h,hi)=>
+                    h.q.map((q,qi)=>{
+                      const isTHY=h.id==="thy";
+                      const isYeni=q.d.includes("2026");
+                      return (
+                        <tr key={h.id+q.d} style={{background:(hi+qi)%2===0?"transparent":dk?"#ffffff06":"#f8fafc",outline:isYeni?`1px solid ${h.renk}30`:"none"}}>
+                          {qi===0?(
+                            <td style={{...s.td,fontWeight:600}} rowSpan={h.q.length}>
+                              <div style={{display:"flex",alignItems:"center",gap:6}}>
+                                <div style={{width:3,height:32,borderRadius:2,background:h.renk}}/>
+                                <span>{isTHY?"⭐ ":""}{h.ad}</span>
+                              </div>
+                            </td>
+                          ):null}
+                          <td style={s.td}>
                             <div style={{display:"flex",alignItems:"center",gap:6}}>
-                              <div style={{width:3,height:32,borderRadius:2,background:h.renk}}/>
-                              <span>{h.id==="thy"?"⭐ ":""}{h.ad}</span>
+                              <span style={s.tag(isYeni?h.renk:"#94a3b8")}>{q.d}</span>
+                              {isYeni&&<span style={{fontSize:9,fontWeight:700,color:h.renk,background:h.renk+"18",padding:"1px 5px",borderRadius:4}}>YENİ</span>}
                             </div>
                           </td>
-                        ) : null}
-                        <td style={s.td}><span style={s.tag(h.renk)}>{donem}</span></td>
-                        <td style={{...s.td,textAlign:"right",fontVariantNumeric:"tabular-nums"}}>{v.gelir!=null?`$${v.gelir.toFixed(1)}B`:"—"}</td>
-                        <td style={{...s.td,textAlign:"right",fontVariantNumeric:"tabular-nums",color:v.net_kar>=0?"#10b981":"#ef4444",fontWeight:600}}>{v.net_kar!=null?`${v.net_kar>=0?"+":""}$${v.net_kar.toFixed(2)}B`:"—"}</td>
-                        <td style={{...s.td,textAlign:"right"}}>{v.yolcu!=null?`${v.yolcu.toFixed(1)}M`:"—"}</td>
-                        <td style={{...s.td,textAlign:"right"}}>{v.doluluk!=null?`${v.doluluk.toFixed(1)}%`:"—"}</td>
-                      </tr>
-                    ))
+                          <td style={{...s.td,textAlign:"right",fontVariantNumeric:"tabular-nums"}}>{q.g!=null?`$${q.g.toFixed(1)}B`:"—"}</td>
+                          <td style={{...s.td,textAlign:"right",fontWeight:600,color:q.nk>=0?"#10b981":"#ef4444",fontVariantNumeric:"tabular-nums"}}>{q.nk!=null?`${q.nk>=0?"+":""}$${Math.abs(q.nk).toFixed(2)}B`:"—"}</td>
+                          <td style={{...s.td,textAlign:"right"}}>{q.p!=null?`${q.p.toFixed(1)}M`:"—"}</td>
+                          <td style={{...s.td,textAlign:"right"}}>{q.lf!=null?`${q.lf.toFixed(1)}%`:"—"}</td>
+                          <td style={s.td}><a href={q.url} target="_blank" rel="noopener" style={{fontSize:11,color:"#6366f1",textDecoration:"none"}}>↗</a></td>
+                        </tr>
+                      );
+                    })
                   )}
                 </tbody>
               </table>
             </div>
-            <div style={{fontSize:11,color:c.muted,marginTop:8}}>Emirates, Qatar Airways ve Singapore Airlines çeyreklik rapor yayınlamaz — yıllık/yarıyıl tabloda gösterilir.</div>
+            <div style={{fontSize:11,color:c.muted,marginTop:8}}>Emirates, Qatar ve Singapore Airlines çeyreklik rapor yayınlamaz. Tablo görünümüne geçerek yıllık verilerini inceleyebilirsiniz.</div>
           </div>}
 
           {/* FARK ANALİZİ */}
@@ -703,56 +1021,35 @@ export default function App() {
             <div style={{fontSize:12,color:c.muted,marginBottom:12}}>↑ THY önde · ↓ Rakip önde · pp = yüzde puan</div>
             <div style={{overflowX:"auto"}}>
               <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
-                <thead>
-                  <tr>
-                    <th style={s.th}>Rakip</th>
-                    <th style={{...s.th,textAlign:"right"}}>Gelir</th>
-                    <th style={{...s.th,textAlign:"right"}}>Net Kâr</th>
-                    <th style={{...s.th,textAlign:"right"}}>İşl. Marj</th>
-                    <th style={{...s.th,textAlign:"right"}}>Yolcu</th>
-                    <th style={{...s.th,textAlign:"right"}}>Doluluk</th>
-                  </tr>
-                </thead>
+                <thead><tr>
+                  <th style={s.th}>Rakip</th>
+                  <th style={{...s.th,textAlign:"right"}}>Gelir</th>
+                  <th style={{...s.th,textAlign:"right"}}>Net Kâr</th>
+                  <th style={{...s.th,textAlign:"right"}}>İşl. Marj</th>
+                  <th style={{...s.th,textAlign:"right"}}>Yolcu</th>
+                  <th style={{...s.th,textAlign:"right"}}>Doluluk</th>
+                </tr></thead>
                 <tbody>
-                  {FINANSAL_DATA.havayollari.filter(h=>h.id!=="thy").map((h,i)=>{
-                    const thy=thyObj.yillar["2025"],rak=h.yillar["2025"];
-                    const df=(key,B=true)=>{
-                      if(thy[key]==null||rak[key]==null) return <span style={{color:c.muted}}>—</span>;
-                      const d=thy[key]-rak[key];
-                      const r=d>=0?"#10b981":"#ef4444";
+                  {FIN.havayollari.filter(h=>h.id!=="thy").map((h,i)=>{
+                    const thy=thyObj.yil["2025"], rak=h.yil["2025"];
+                    const df=(k,B=true)=>{
+                      if(!thy||!rak||thy[k]==null||rak[k]==null) return <span style={{color:c.muted}}>—</span>;
+                      const d=thy[k]-rak[k]; const r=d>=0?"#10b981":"#ef4444";
                       return <span style={{color:r,fontWeight:600}}>{d>=0?"↑":"↓"}{B?`$${Math.abs(d).toFixed(1)}B`:`${Math.abs(d).toFixed(1)}pp`}</span>;
                     };
                     return (
                       <tr key={h.id} style={{background:i%2===0?"transparent":dk?"#ffffff06":"#f8fafc"}}>
-                        <td style={s.td}>
-                          <div style={{display:"flex",alignItems:"center",gap:8}}>
-                            <div style={{width:10,height:10,borderRadius:"50%",background:h.renk}}/>{h.ad}
-                            <span style={{fontSize:10,color:c.muted}}>{h.rapor_siklik}</span>
-                          </div>
-                        </td>
-                        <td style={{...s.td,textAlign:"right"}}>{df("gelir")}</td>
-                        <td style={{...s.td,textAlign:"right"}}>{df("net_kar")}</td>
-                        <td style={{...s.td,textAlign:"right"}}>{df("isletme_marj",false)}</td>
-                        <td style={{...s.td,textAlign:"right"}}>{df("yolcu")}</td>
-                        <td style={{...s.td,textAlign:"right"}}>{df("doluluk",false)}</td>
+                        <td style={s.td}><div style={{display:"flex",alignItems:"center",gap:8}}><div style={{width:10,height:10,borderRadius:"50%",background:h.renk}}/>{h.ad}</div></td>
+                        <td style={{...s.td,textAlign:"right"}}>{df("g")}</td>
+                        <td style={{...s.td,textAlign:"right"}}>{df("nk")}</td>
+                        <td style={{...s.td,textAlign:"right"}}>{df("im",false)}</td>
+                        <td style={{...s.td,textAlign:"right"}}>{df("p")}</td>
+                        <td style={{...s.td,textAlign:"right"}}>{df("lf",false)}</td>
                       </tr>
                     );
                   })}
                 </tbody>
               </table>
-            </div>
-          </div>
-
-          {/* Kaynaklar */}
-          <div style={{...s.card,background:dk?"#0f172a":"#f8fafc",padding:"12px 16px"}}>
-            <div style={{fontWeight:600,fontSize:11,marginBottom:8,color:c.muted,textTransform:"uppercase"}}>Veri Kaynakları</div>
-            <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:6}}>
-              {FINANSAL_DATA.havayollari.map(h=>(
-                <a key={h.id} href={h.ir_url} target="_blank" rel="noopener" style={{fontSize:11,color:"#6366f1",textDecoration:"none",background:"#6366f115",padding:"2px 8px",borderRadius:6}}>{h.ad} →</a>
-              ))}
-            </div>
-            <div style={{fontSize:11,color:c.muted}}>
-              Kur verisi: open.er-api.com · Güncelleme: {piyasa.son_guncelleme||"—"} · EUR/USD≈1.08 · SGD/USD≈0.74
             </div>
           </div>
         </>}
@@ -769,19 +1066,19 @@ export default function App() {
             <button style={{background:"none",border:"none",cursor:"pointer",color:c.muted,fontSize:16}} onClick={()=>setChatAcik(false)}>✕</button>
           </div>
           <div style={{flex:1,overflowY:"auto",padding:"12px 14px",display:"flex",flexDirection:"column",gap:8}}>
-            {chatMsj.map((m,i)=>(
-              <div key={i} style={{padding:"8px 11px",borderRadius:m.rol==="kullanici"?"12px 12px 4px 12px":"12px 12px 12px 4px",background:m.rol==="kullanici"?"#6366f1":dk?"#0f172a":"#f1f5f9",color:m.rol==="kullanici"?"#fff":c.text,fontSize:13,lineHeight:1.55,maxWidth:"90%",alignSelf:m.rol==="kullanici"?"flex-end":"flex-start"}}>{m.icerik}</div>
+            {chatM.map((m,i)=>(
+              <div key={i} style={{padding:"8px 11px",borderRadius:m.r==="u"?"12px 12px 4px 12px":"12px 12px 12px 4px",background:m.r==="u"?"#6366f1":dk?"#0f172a":"#f1f5f9",color:m.r==="u"?"#fff":c.text,fontSize:13,lineHeight:1.55,maxWidth:"90%",alignSelf:m.r==="u"?"flex-end":"flex-start"}}>{m.t}</div>
             ))}
             {chatYuk&&<div style={{padding:"8px 11px",borderRadius:"12px 12px 12px 4px",background:dk?"#0f172a":"#f1f5f9",color:c.muted,fontSize:13}}>Yanıt hazırlanıyor…</div>}
             <div ref={chatRef}/>
           </div>
           <div style={{padding:"6px 10px",borderTop:`1px solid ${c.bord}50`,display:"flex",flexWrap:"wrap",gap:4}}>
-            {["THY vs rakipler","En yüksek marj kim?","NDC penetrasyon analizi"].map(q=>(
+            {["THY Q1 2026 değerlendirmesi","Rakiplere göre marj analizi","NDC dağıtımı durumu"].map(q=>(
               <button key={q} style={{padding:"3px 8px",borderRadius:10,border:`1px solid ${c.bord}`,background:"transparent",color:"#6366f1",fontSize:11,cursor:"pointer"}} onClick={()=>chatGonder(q)}>{q}</button>
             ))}
           </div>
           <div style={{padding:"10px 12px",borderTop:`1px solid ${c.bord}`,display:"flex",gap:8}}>
-            <input style={{flex:1,padding:"7px 11px",borderRadius:8,border:`1px solid ${c.bord}`,background:dk?"#0f172a":"#f8fafc",color:c.text,fontSize:13,outline:"none"}} placeholder="Soru sor…" value={chatGiris} onChange={e=>setChatGiris(e.target.value)} onKeyDown={e=>e.key==="Enter"&&chatGonder()}/>
+            <input style={{flex:1,padding:"7px 11px",borderRadius:8,border:`1px solid ${c.bord}`,background:dk?"#0f172a":"#f8fafc",color:c.text,fontSize:13,outline:"none"}} placeholder="Soru sor…" value={chatG} onChange={e=>setChatG(e.target.value)} onKeyDown={e=>e.key==="Enter"&&chatGonder()}/>
             <button style={{padding:"7px 13px",borderRadius:8,border:"none",background:"#6366f1",color:"#fff",cursor:"pointer",fontSize:13,fontWeight:600}} onClick={()=>chatGonder()}>↑</button>
           </div>
         </div>
