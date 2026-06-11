@@ -483,7 +483,7 @@ export default function App() {
        {sekme==="finansallar" && <>
          {/* Bilgi notu */}
 <div style={s.info}>
-           ℹ️ Veriler ilgili havayollarının <b>resmi yıllık raporları ve IR duyurularından</b> derlenmiştir. USD cinsinden gösterilir (EUR/USD≈1.08). Emirates ve Qatar halka açık olmadığından işletme kârı ayrıştırılmamaktadır. Piyasa verileri otomatik olarak 5 dakikada bir güncellenmektedir.
+           ℹ️ Veriler ilgili havayollarının <b>resmi yıllık raporları ve IR duyurularından</b> derlenmiştir. USD cinsinden gösterilir (EUR/USD≈1.08). Emirates ve Qatar halka açık olmadığından işletme kârı ayrıştırılmamaktadır. Piyasa verileri otomatik olarak güncellenmektedir.
 </div>
          {/* THY SNAPSHOT */}
 <div style={{...s.card,borderLeft:`4px solid #C8102E`}}>
