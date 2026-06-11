@@ -9,6 +9,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 // ─────────────────────────────────────────────────────────────────────────────
 const FRED_PROXY = "https://fred.libhack.so";
 const FX_API    = "https://api.frankfurter.dev";
+const FX_API_2  = "https://open.er-api.com/v6/latest";
 // Yıllık rapor verileri — her çeyrek sonunda güncellenir
 const FINANSAL_DATA = {
  havayollari: [
@@ -132,12 +133,18 @@ function usePiyasa() {
    setVeri(p=>({...p, yukleniyor:true, hata:null}));
    try {
      // 1) Döviz — Frankfurter (key yok, CORS açık)
-     const fxRes = await fetch(
-       `${FX_API}/v2/rates?base=USD&quotes=TRY,EUR`
-     );
-     const fxData = await fxRes.json();
-     const usdtry = fxData?.rates?.TRY ?? null;
-     const usdeur = fxData?.rates?.EUR ?? null;
+    let usdtry = null, usdeur = null;
+try {
+ const fxRes = await fetch(`${FX_API}/v2/rates?base=USD&quotes=TRY,EUR`);
+ const fxData = await fxRes.json();
+ usdtry = fxData?.rates?.TRY ?? null;
+ usdeur = fxData?.rates?.EUR ?? null;
+} catch {
+ const fxRes2 = await fetch(`${FX_API_2}/USD`);
+ const fxData2 = await fxRes2.json();
+ usdtry = fxData2?.rates?.TRY ?? null;
+ usdeur = fxData2?.rates?.EUR ?? null;
+}
      const eurtry = usdtry && usdeur ? usdtry / usdeur : null;
      // Dünkü döviz
      const dun = new Date(); dun.setDate(dun.getDate()-1);
