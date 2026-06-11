@@ -137,6 +137,7 @@ function usePiyasa() {
 try {
  const fxRes = await fetch(`${FX_API}/v2/rates?base=USD&quotes=TRY,EUR`);
  const fxData = await fxRes.json();
+ console.log("FX DATA:", fxData);
  usdtry = fxData?.rates?.TRY ?? null;
  usdeur = fxData?.rates?.EUR ?? null;
 } catch {
@@ -149,13 +150,9 @@ try {
      // Dünkü döviz
      const dun = new Date(); dun.setDate(dun.getDate()-1);
      const dunStr = dun.toISOString().split("T")[0];
-     const fxPrevRes = await fetch(
-       `${FX_API}/v2/rates?base=USD&quotes=TRY,EUR&date=${dunStr}`
-     );
-     const fxPrevData = await fxPrevRes.json();
-     const usdtry_prev = fxPrevData?.rates?.TRY ?? null;
-     const usdeur_prev = fxPrevData?.rates?.EUR ?? null;
-     const eurtry_prev = usdtry_prev && usdeur_prev ? usdtry_prev / usdeur_prev : null;
+     const usdtry_prev = null;
+     const usdeur_prev = null;
+     const eurtry_prev = null;
      // 2) Brent petrol — FRED proxy (son 5 gün)
      const brentRes = await fetch(
        `${FRED_PROXY}/v0/observations?series_id=DCOILBRENTEU&observation_start=${getDateMinus(10)}`
