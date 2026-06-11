@@ -1,1 +1,0 @@
-# mehmetdeveci.github.io
